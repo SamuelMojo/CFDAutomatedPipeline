@@ -1,0 +1,39 @@
+{
+  "name": "perrinn_fw_sa_half_verysimple",
+  "notes": "Design-variant test: Very simple end: simplified wing end detail (124 STEP points removed, 62 per side, x -1.028..-0.832), fewest elements/details. Mirror-symmetric, ride height unchanged (85.6 mm). Same layered SA half-wing setup. Compare against baseline Cl -1.1338, Cd 0.2121; noise about 2%.",
+  "geometry": "../../test_data/perrinn/perrinn_fw_very_simple_end.stl",
+  "units": "m",
+  "allow_open": true,
+  "preset": "standard",
+  "case": {
+    "speed": 50.0,
+    "ground": "moving",
+    "aref": 1.0,
+    "lref": 0.737,
+    "processors": 14,
+    "turbulence_model": "SpalartAllmaras",
+    "half_model": true,
+    "base_cell": 0.1,
+    "surface_level": [
+      5,
+      7
+    ],
+    "feature_level": 7,
+    "near_level": 4,
+    "wake_level": 3,
+    "layers": 1,
+    "layer_thickness": 0.0004,
+    "upstream": 3.0,
+    "downstream": 6.0,
+    "half_width": 2.5,
+    "height": 2.5,
+    "merge_layer_faces": false
+  },
+  "solve": {
+    "min_iterations": 500,
+    "max_iterations": 3000,
+    "block": 250,
+    "tolerance": 0.005,
+    "average_iterations": 0
+  }
+}

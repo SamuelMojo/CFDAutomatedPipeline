@@ -1,0 +1,16 @@
+{
+  "name": "ahmed1_quick_sa",
+  "notes": "Smoke test: quick preset with Spalart-Allmaras.",
+  "geometry": "../test_data/ahmed/ahmed_1.stl",
+  "units": "m",
+  "preset": "quick",
+  "case": {
+    "speed": 40,
+    "ground": "fixed",
+    "aref": 0.112,
+    "lref": 1.044,
+    "processors": 8,
+    "turbulence_model": "SpalartAllmaras"
+  },
+  "reference": "../test_data/ahmed/force_mom_1.csv"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "ahmed1_quick",
+  "notes": "Smoke test: coarse mesh, no layers, a few hundred iterations. Checks the job runner end to end in minutes; the numbers are NOT meant to be accurate.",
+  "geometry": "../test_data/ahmed/ahmed_1.stl",
+  "units": "m",
+  "preset": "quick",
+  "case": {"speed": 40, "ground": "fixed", "aref": 0.112, "lref": 1.044, "processors": 8},
+  "reference": "../test_data/ahmed/force_mom_1.csv"
+}

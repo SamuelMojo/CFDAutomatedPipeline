@@ -1,0 +1,10 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+# Real errors only for now: syntax errors, undefined names, unused imports/variables.
+select = ["E9", "F"]

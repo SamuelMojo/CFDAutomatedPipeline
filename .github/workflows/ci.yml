@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    name: Core tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run tests (CadQuery and OpenFOAM tests skip themselves)
+        run: python -m pytest -rs
+
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    # Informational until the first run shows the code is clean; then remove continue-on-error.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
+        with:
+          args: check src tests
+
+  cadquery:
+    name: STEP and geometry tests (CadQuery)
+    runs-on: ubuntu-latest
+    # Informational until proven green in CI; developed against CadQuery 2.8 on Python 3.14.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: sudo apt-get update && sudo apt-get install -y libgl1 libglu1-mesa
+      - run: pip install -r requirements.txt cadquery
+      - run: python -m pytest -rs

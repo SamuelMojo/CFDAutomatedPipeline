@@ -1,0 +1,30 @@
+{
+  "name": "tyrrell_h0090_sst",
+  "notes": "Validation: Zerihan single-element wing in ground effect, h/c = 0.09, kOmegaSST. Reference = balance forces, transition fixed, digitised from Zerihan (2001) Fig. 21.",
+  "geometry": "../../test_data/zerihan_wing/tyrrell_h0090.stl",
+  "units": "m",
+  "preset": "standard",
+  "case": {
+    "speed": 30.0,
+    "ground": "moving",
+    "aref": 0.24574,
+    "lref": 0.2234,
+    "processors": 14,
+    "base_cell": 0.1,
+    "surface_level": [
+      6,
+      7
+    ],
+    "feature_level": 7,
+    "near_level": 5,
+    "wake_level": 4,
+    "layers": 1,
+    "layer_thickness": 0.0006,
+    "upstream": 3.0,
+    "downstream": 6.0,
+    "half_width": 1.05,
+    "height": 1.7,
+    "turbulence_model": "kOmegaSST"
+  },
+  "reference": "../../test_data/zerihan_wing/ref_h0090.csv"
+}

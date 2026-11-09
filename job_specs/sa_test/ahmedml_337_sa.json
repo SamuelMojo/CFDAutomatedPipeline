@@ -1,0 +1,16 @@
+{
+  "name": "ahmedml_337_sa",
+  "notes": "Turbulence-model test: AhmedML run_337 with Spalart-Allmaras; otherwise identical to the phase 3 sweep job ahmedml_337 (k-omega SST).",
+  "geometry": "../../test_data/ahmed_sweep/run_337/ahmed_337.stl",
+  "units": "m",
+  "preset": "standard",
+  "case": {
+    "speed": 40,
+    "ground": "fixed",
+    "aref": 0.112,
+    "lref": 1.044,
+    "processors": 14,
+    "turbulence_model": "SpalartAllmaras"
+  },
+  "reference": "../../test_data/ahmed_sweep/run_337/force_mom_337.csv"
+}

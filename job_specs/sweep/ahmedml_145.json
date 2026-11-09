@@ -1,0 +1,15 @@
+{
+  "name": "ahmedml_145",
+  "notes": "Phase 3 design sweep: AhmedML run_145, standard preset, identical settings for every shape.",
+  "geometry": "../../test_data/ahmed_sweep/run_145/ahmed_145.stl",
+  "units": "m",
+  "preset": "standard",
+  "case": {
+    "speed": 40,
+    "ground": "fixed",
+    "aref": 0.112,
+    "lref": 1.044,
+    "processors": 14
+  },
+  "reference": "../../test_data/ahmed_sweep/run_145/force_mom_145.csv"
+}

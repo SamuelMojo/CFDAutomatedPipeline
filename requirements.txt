@@ -1,0 +1,6 @@
+numpy
+pytest
+matplotlib   # plots in compare_lienhart.py (optional; comparisons still run without it)
+# Only needed to read STEP files. Large install (pulls in VTK and others).
+# Verified working on Python 3.14 (CadQuery 2.8.0): pip install cadquery
+# cadquery

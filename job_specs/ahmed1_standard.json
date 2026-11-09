@@ -1,0 +1,9 @@
+{
+  "name": "ahmed1_standard",
+  "notes": "Phase 1 standard setup (as v3f): one fixed 1.25 mm boundary layer, runs until the mean forces settle (0.5%), 1,000 to 4,000 iterations.",
+  "geometry": "../test_data/ahmed/ahmed_1.stl",
+  "units": "m",
+  "preset": "standard",
+  "case": {"speed": 40, "ground": "fixed", "aref": 0.112, "lref": 1.044, "processors": 14},
+  "reference": "../test_data/ahmed/force_mom_1.csv"
+}
