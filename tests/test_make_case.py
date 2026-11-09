@@ -84,7 +84,6 @@ def test_default_model_unchanged_and_bad_model(tmp_path):
 
 def test_open_surface_needs_allow_open(tmp_path):
     import inspect_geometry as ig
-    import numpy as np
     stl = box_stl(tmp_path)
     tris = ig.read_stl(stl)
     ig.write_stl_binary(stl, tris[1:])                    # remove one triangle: a hole
@@ -136,6 +135,7 @@ def test_merge_layer_faces_switch(tmp_path):
 def test_half_model_refuses_a_body_edited_on_one_side_only(tmp_path):
     # the bounding box is symmetric about Y = 0, but the right-hand body is much smaller than the left-hand one
     import inspect_geometry as ig
+    import numpy as np
     left = fx.cube(1.0) * [1.0, 0.2, 0.3] + [-1.0, -0.3, 0.05]          # Y -0.3 .. -0.1
     right = fx.cube(1.0) * [0.5, 0.2, 0.15] + [-1.0, 0.1, 0.05]          # Y  0.1 ..  0.3
     p = tmp_path / "lopsided.stl"

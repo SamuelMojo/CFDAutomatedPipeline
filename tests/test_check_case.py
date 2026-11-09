@@ -16,8 +16,8 @@ DOMAIN, BODY = 81.6, 0.10591
 def solver_log(cd, cl, end=True):
     lines = []
     for i, (d, l) in enumerate(zip(cd, cl), start=1):
-        lines += [f"Time = {i}s", "", "forceCoeffs forceCoeffs execute:", f"    Cm    = 0.01",
-                  f"    Cd    = {d}", f"    Cl    = {l}", f"    Cl(f) = 0.1", f"    Cl(r) = 0.1", ""]
+        lines += [f"Time = {i}s", "", "forceCoeffs forceCoeffs execute:", "    Cm    = 0.01",
+                  f"    Cd    = {d}", f"    Cl    = {l}", "    Cl(f) = 0.1", "    Cl(r) = 0.1", ""]
     if end:
         lines += ["End", "", "Finalising parallel run"]
     return "\n".join(lines)

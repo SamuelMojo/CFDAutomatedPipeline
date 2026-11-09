@@ -48,7 +48,7 @@ class FakeFoam:
             end = int(re.search(r"^endTime\s+(\d+);", (case / "system/controlDict").read_text(), re.M).group(1))
             out = []
             for i in range(self.it + 1, end + 1):
-                out += [f"Time = {i}s", f"    Cm    = 0.01", f"    Cd    = {self.cd(i):.6f}", f"    Cl    = -0.1", ""]
+                out += [f"Time = {i}s", "    Cm    = 0.01", f"    Cd    = {self.cd(i):.6f}", "    Cl    = -0.1", ""]
             self.it = end
             text = "\n".join(out) + "\nEnd\n"
         with open(log, "a" if append else "w") as f:

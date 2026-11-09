@@ -6,7 +6,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 import prepare_sweep as ps  # noqa: E402
-import run_job as rj  # noqa: E402
 
 
 def test_choose_spreads_and_adds_close_pair():
