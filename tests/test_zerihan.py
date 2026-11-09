@@ -13,6 +13,12 @@ import compare_zerihan as cz  # noqa: E402
 import make_tyrrell_wing as tw  # noqa: E402
 import run_job as rj  # noqa: E402
 
+# The digitised thesis tables are third-party data and are not committed (test_data/ is ignored),
+# so a fresh clone, including CI, skips these tests. They run wherever the data is present.
+pytestmark = pytest.mark.skipif(
+    not (ROOT / "test_data" / "zerihan_wing" / "profile_table2.csv").exists(),
+    reason="Zerihan thesis tables not present (third-party data, see test_data/README.md)")
+
 
 def test_profile_matches_the_thesis():
     suc, pre = tw.load_profile()
