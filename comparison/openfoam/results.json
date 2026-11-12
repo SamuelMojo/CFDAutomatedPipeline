@@ -1,0 +1,135 @@
+{
+  "case": "/home/samue/OpenFOAM/samue-14/run/jobs/perrinn_fw_sa_half_20261107-083619/case",
+  "status": "WARN",
+  "gates": [
+    {
+      "level": "WARN",
+      "code": "MESH_FINISHED",
+      "message": "snappyHexMesh finished with 338 illegal faces out of 21,329,608 (1.6e-05); criteria: faces with interpolation weights (0..1)  < 0.02 (338). A handful is usually harmless; checkMesh decides below."
+    },
+    {
+      "level": "PASS",
+      "code": "MESH_QUALITY",
+      "message": "checkMesh: Mesh OK."
+    },
+    {
+      "level": "PASS",
+      "code": "FLUID_VOLUME",
+      "message": "mesh volume 60.6171 m^3; domain 60.625 m^3; body 0.007897 m^3; 100% of the body volume is cut out of the mesh."
+    },
+    {
+      "level": "PASS",
+      "code": "SOLVER_END",
+      "message": "Solver reached End after 500 iterations."
+    },
+    {
+      "level": "PASS",
+      "code": "CONVERGED",
+      "message": "mean over the last 100 of 500 iterations moved by 0.03% (Cd) and 0.04% (Cl) vs the 100 before; oscillation peak-to-peak Cd 0.0001, Cl 0.0002."
+    }
+  ],
+  "final": {
+    "Cd": 0.212059,
+    "Cl": -1.13385,
+    "Cm": -0.0898021,
+    "iterations": 500,
+    "oscillation_period_iterations": 861.4060583252641,
+    "Cd_mean": 0.21206033,
+    "Cd_mean_previous": 0.21200193000000003,
+    "Cl_mean": -1.1337865,
+    "Cl_mean_previous": -1.1332886000000002,
+    "relative_swing": {
+      "Cd": 0.0002640757939026149,
+      "Cl": 0.0001499400460315972
+    },
+    "mean_window_iterations": 100,
+    "mean_shift": {
+      "Cd": 0.00027539332792681447,
+      "Cl": 0.0004391479348182652
+    },
+    "peak_to_peak": {
+      "Cd": 5.6000000000000494e-05,
+      "Cl": 0.00017000000000000348
+    }
+  },
+  "comparison": null,
+  "mesh": {
+    "cells": 6751080,
+    "regions_reported": null,
+    "total_volume_m3": 60.6171,
+    "body_volume_removed_fraction": 1.0003844716623977
+  },
+  "job": {
+    "tool": "make_case.py",
+    "tool_version": "0.5.0",
+    "parameters": {
+      "speed_m_s": 50.0,
+      "nu_m2_s": 1.5e-05,
+      "reynolds_on_lref": 2456666.6666666665,
+      "ground": "moving",
+      "symmetry": "half model: Y <= 0 meshed, symmetryPlane at Y = 0; coefficients are full-body values",
+      "base_cell_m": 0.1,
+      "surface_level": [
+        5,
+        7
+      ],
+      "feature_level": 7,
+      "near_level": 4,
+      "wake_level": 3,
+      "layers": 1,
+      "layer_thickness_m": 0.0004,
+      "end_time_iterations": 250,
+      "processors": 14,
+      "domain_min": [
+        -3.0,
+        -2.5,
+        0.0
+      ],
+      "domain_max": [
+        6.700000000000001,
+        0.0,
+        2.5
+      ],
+      "base_cells": [
+        97,
+        25,
+        25
+      ],
+      "inside_point": [
+        -2.7634499999999997,
+        -0.01365,
+        0.6068078979015351
+      ],
+      "near_box": [
+        -0.11058820188045501,
+        -0.9703670799732208,
+        0.0,
+        1.0321565508842467,
+        0.9703670799732208,
+        0.4015460997819901
+      ],
+      "wake_box": [
+        -0.22117640376091002,
+        -1.0809552818536758,
+        0.0,
+        1.8431366980075836,
+        1.0809552818536758,
+        0.5858597695827484
+      ],
+      "Aref_m2": 1.0,
+      "lRef_m": 0.737,
+      "CofR": [
+        0.3686273396015167,
+        0.0,
+        0.0
+      ],
+      "turbulence_model": "SpalartAllmaras",
+      "turbulence_inlet": {
+        "nuTilda": 4.5e-05,
+        "note": "3 x nu (fully turbulent inflow)"
+      }
+    }
+  },
+  "tool": "check_case.py",
+  "tool_version": "0.4.0"
+}

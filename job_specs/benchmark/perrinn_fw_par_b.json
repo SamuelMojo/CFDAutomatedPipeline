@@ -1,0 +1,39 @@
+{
+  "name": "perrinn_fw_par_b",
+  "notes": "Parallel-pair benchmark: two copies of this job (par_a, par_b) run at the same time, 8 processors each, fixed 300 iterations. Compare the times with perrinn_fw_bench_p08 (the same job running alone: 71.2 min) and with perrinn_fw_bench_p12 (63.4 min). Timing only.",
+  "geometry": "../../test_data/perrinn/perrinn_front_wing.stl",
+  "units": "m",
+  "allow_open": true,
+  "preset": "standard",
+  "case": {
+    "speed": 50,
+    "ground": "moving",
+    "aref": 1,
+    "lref": 0.737,
+    "processors": 8,
+    "turbulence_model": "SpalartAllmaras",
+    "half_model": true,
+    "base_cell": 0.1,
+    "surface_level": [
+      5,
+      7
+    ],
+    "feature_level": 7,
+    "near_level": 4,
+    "wake_level": 3,
+    "layers": 1,
+    "layer_thickness": 0.0004,
+    "upstream": 3,
+    "downstream": 6,
+    "half_width": 2.5,
+    "height": 2.5,
+    "merge_layer_faces": false
+  },
+  "solve": {
+    "min_iterations": 300,
+    "max_iterations": 300,
+    "block": 300,
+    "tolerance": 0.005,
+    "average_iterations": 0
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "solver": "FluidX3D (lattice Boltzmann, D3Q19 SRT, FP16S, Smagorinsky LES, no wall model)",
+  "case": "PERRINN front wing, full wing, moving ground, 50 m/s, Aref 1 m^2 (downforce = negative Cl)",
+  "cell_size_mm": 6.088,
+  "grid": [657, 819, 246],
+  "cells": 132368418,
+  "box_m": [4.00, 5.00, 1.50],
+  "reynolds_chord": 2489865,
+  "simulated_time_s": 0.300,
+  "averaged_over_last_s": 0.150,
+  "samples_averaged": 329,
+  "Cd_mean": 0.2236,
+  "Cl_mean": -0.2183,
+  "Cd_peak_to_peak": 0.0689,
+  "Cl_peak_to_peak": 0.0553,
+  "drag_mean_N": 342.4,
+  "downforce_mean_N": 334.3,
+  "wall_time_s": 894
+}
