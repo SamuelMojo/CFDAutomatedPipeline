@@ -131,8 +131,8 @@
             <div>
               <label for="set-preset">Quality</label>
               <select id="set-preset">
-                <option value="quick" selected>Quick</option>
-                <option value="standard">Standard</option>
+                <option value="quick">Preview: fast, rough first look</option>
+                <option value="standard" selected>Standard: slower, numbers you can quote</option>
               </select>
             </div>
             <div>
@@ -147,8 +147,9 @@
               </select>
             </div>
           </div>
-          <p class="hint">Quick uses a coarse mesh without a boundary layer: a rough first look. Standard uses a
-            finer mesh with a boundary layer and more iterations, so it takes longer.</p>
+          <p class="hint">Preview uses a coarse mesh without a boundary layer and usually takes a few minutes. It is
+            good for checking that the model loads and the flow looks right, not for numbers you want to quote.
+            Standard uses a finer mesh with a boundary layer and more iterations, so it can take an hour or more.</p>
         </fieldset>
 
         <button type="submit" id="runs-submit">Upload and queue</button>

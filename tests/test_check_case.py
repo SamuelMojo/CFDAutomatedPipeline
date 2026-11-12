@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -24,18 +25,47 @@ def solver_log(cd, cl, end=True):
     return "\n".join(lines)
 
 
-def make(tmp_path, total_volume=DOMAIN - BODY, cd=None, cl=None, snappy_ok=True, mesh_ok=True, end=True):
+def part(base=0.2, surface=(5, 6), length=1.188, gap=0.05, volume=BODY, area=1.565, half=False):
+    """The job.json entries the RESOLUTION gate reads. Defaults: the Ahmed body at the standard preset (a pass).
+
+    volume and area describe the whole part; for a half model job.json holds the volume of the meshed half.
+    """
+    return {"parameters": {"base_cell_m": base, "surface_level": list(surface),
+                           "symmetry": "half model: Y <= 0 meshed" if half else "none (full model)"},
+            "input_stl": {"bbox_min": [0.0, -0.2, gap], "bbox_max": [length, 0.2, gap + 0.2],
+                          "volume_m3": volume / 2 if half else volume, "surface_area_m2": area}}
+
+
+# Real parts at real presets, from this repo's own runs: (part arguments, cells in the mesh, expected level).
+REAL_CASES = {
+    "Zerihan wing, standard (validated)": (dict(base=0.2, surface=(5, 6), length=0.25, gap=0.05, volume=0.00473,
+                                                area=0.6055), 4_840_000, "PASS"),
+    "PERRINN half wing, 3.1 / 0.8 mm (validated)": (dict(base=0.1, surface=(5, 7), length=0.7373, gap=0.0856,
+                                                         volume=0.01579, area=2.8568, half=True), 6_751_080, "PASS"),
+    "Ahmed body, standard": (dict(), 2_105_486, "PASS"),
+    "Ahmed body, quick (smoke test)": (dict(base=0.4, surface=(3, 4)), 150_000, "WARN"),
+    "737 mm demo wing, quick, half": (dict(base=0.4, surface=(3, 4), length=0.8248, gap=0.1651, volume=0.08794,
+                                           area=3.8025, half=True), 90_000, "WARN"),
+    "223 mm demo wing, quick (gave Cd 0.72, Cl -4.5)": (dict(base=0.4, surface=(3, 4), length=0.25, gap=0.05,
+                                                             volume=0.00473, area=0.6055), 7_893, "FAIL"),
+}
+
+
+def make(tmp_path, total_volume=DOMAIN - BODY, cd=None, cl=None, snappy_ok=True, mesh_ok=True, end=True,
+         resolution=None, cells=2_000_000):
     """Build a synthetic finished case folder (job.json and the three logs) in tmp_path and return it.
 
     Defaults give a case that passes every gate; each argument spoils one thing: the fluid volume, the force history,
-    the snappyHexMesh result, the checkMesh result or the solver ending.
+    the snappyHexMesh result, the checkMesh result, the solver ending, the part's size against the mesh (resolution:
+    keyword arguments for part()) or the number of cells.
     """
     c = tmp_path / "case"
     c.mkdir()
-    (c / "job.json").write_text(json.dumps({"tool": "make_case.py", "tool_version": "x", "parameters": {},
+    (c / "job.json").write_text(json.dumps({"tool": "make_case.py", "tool_version": "x",
+                                            **part(**(resolution or {})),
                                             "expected": {"domain_volume_m3": DOMAIN,
                                                          "fluid_volume_m3": DOMAIN - BODY}}))
-    (c / "log.snappyHexMesh").write_text("Snapped mesh : cells:1000  faces:1  points:1\n"
+    (c / "log.snappyHexMesh").write_text(f"Snapped mesh : cells:{cells}  faces:1  points:1\n"
                                          + ("Finished meshing without any errors\n" if snappy_ok else "FOAM FATAL\n"))
     (c / "log.checkMesh").write_text(f"    Total volume = {total_volume:.6g}.  Cell volumes OK.\n"
                                      + ("\nMesh OK.\n" if mesh_ok else "\nFailed 2 mesh checks.\n"))
@@ -181,3 +211,93 @@ def test_wing_layer_mesh_338_illegal_faces_is_warn(tmp_path):
         "    faces with interpolation weights (0..1)  < 0.02        : 338\n"
         "Finished meshing with 338 illegal faces (concave, zero area or negative cell pyramid volume)\n")
     assert levels(cc.check(c))["MESH_FINISHED"] == "WARN"
+
+
+# ---- RESOLUTION: is the mesh fine enough for the part? ---------------------------------------------------------- #
+@pytest.mark.parametrize("name", list(REAL_CASES))
+def test_resolution_on_the_repos_real_cases(name):
+    """The limits pass the validated runs, warn on deliberately rough ones and fail the part that gave Cd 0.72."""
+    args, cells, expected = REAL_CASES[name]
+    gate, details = cc.resolution_gate(part(**args), cells)
+    assert gate["level"] == expected, gate["message"]
+    assert details["cells"] == cells and gate["code"] == "RESOLUTION"
+
+
+def test_tiny_part_fails_and_the_message_says_why():
+    """The 223 mm wing at the quick preset fails, naming the three counts and the cell total."""
+    args, cells, _ = REAL_CASES["223 mm demo wing, quick (gave Cd 0.72, Cl -4.5)"]
+    gate, details = cc.resolution_gate(part(**args), cells)
+    assert gate["level"] == "FAIL"
+    for text in ("only 5 surface cells along its 250 mm length", "only 0.6 cells across its 15.6 mm mean thickness",
+                 "only 7,893 cells in the whole mesh", "50 mm on flat areas, 25 mm on curved areas",
+                 "Use a finer preset"):
+        assert text in gate["message"], gate["message"]
+    assert details["checks"]["length"] == "FAIL" and details["checks"]["thickness"] == "FAIL"
+    assert details["checks"]["gap"] == "WARN"                      # a gap never fails on its own
+
+
+def test_a_gap_alone_never_fails():
+    """One cell under a body (as in the Ahmed smoke test) only warns, however small the gap."""
+    gate, details = cc.resolution_gate(part(base=0.2, surface=(5, 6), gap=0.002), 2_000_000)
+    assert gate["level"] == "WARN" and details["checks"]["gap"] == "WARN"
+
+
+def test_half_model_volume_is_doubled_back():
+    """job.json holds the volume of the meshed half; the mean thickness must be that of the whole part."""
+    args = dict(base=0.4, surface=(3, 4), length=0.8248, gap=0.1651, volume=0.08794, area=3.8025)
+    full = cc.resolution_gate(part(**args), None)[1]
+    half = cc.resolution_gate(part(**args, half=True), None)[1]
+    assert abs(full["mean_thickness_m"] - half["mean_thickness_m"]) < 1e-12
+    assert abs(full["mean_thickness_m"] - 2 * 0.08794 / 3.8025) < 1e-12
+
+
+def test_before_meshing_there_is_no_cell_count_to_judge():
+    """The early check (before meshing) judges the three sizes only; the cell total joins in afterwards."""
+    gate, details = cc.resolution_gate(part(), None)
+    assert gate["level"] == "PASS" and "cells in total" not in gate["message"]
+    assert "cells" not in details["checks"] and details["cells"] is None
+    gate, details = cc.resolution_gate(part(), 5_000)
+    assert gate["level"] == "FAIL" and details["checks"]["cells"] == "FAIL" and "only 5,000 cells" in gate["message"]
+    assert cc.resolution_gate(part(), 60_000)[0]["level"] == "WARN"
+
+
+def test_allow_coarse_turns_a_fail_into_a_warning_with_the_reason_kept():
+    """A smoke test that is meant to be coarse can go ahead, and the result still says it was coarse."""
+    args, cells, _ = REAL_CASES["223 mm demo wing, quick (gave Cd 0.72, Cl -4.5)"]
+    gate, _ = cc.resolution_gate(part(**args), cells, allow_coarse=True)
+    assert gate["level"] == "WARN" and gate["message"].startswith("Accepted because the job sets allow_coarse.")
+    assert "only 0.6 cells across" in gate["message"]
+
+
+@pytest.mark.parametrize("job", [None, {}, {"parameters": {}}, {"parameters": {"base_cell_m": 0.2, "surface_level": [5, 6]}}])
+def test_missing_job_information_warns_instead_of_passing_silently(job):
+    """If the size of the part or the cell size is unknown, the gate says it could not check (never a quiet PASS)."""
+    gate, details = cc.resolution_gate(job, 1_000_000)
+    assert gate["level"] == "WARN" and "Cannot check" in gate["message"] and details is None
+
+
+def test_check_runs_the_gate_on_a_case_and_records_the_numbers(tmp_path):
+    """check() adds RESOLUTION to the gates and stores the measured counts under mesh.resolution."""
+    r = cc.check(make(tmp_path))
+    assert levels(r)["RESOLUTION"] == "PASS" and r["status"] == "PASS"
+    res = r["mesh"]["resolution"]
+    assert res["cells"] == 2_000_000 and res["length_cells"] > 150 and list(res["limits"]["length"]) == [8, 30]
+    json.dumps(r)                                                  # results.json must be writable
+
+
+def test_a_coarse_part_fails_the_whole_check_even_when_every_other_gate_passes(tmp_path):
+    """The failure that motivated the gate: a clean run on a mesh that cannot draw the part must not read PASS."""
+    args, cells, _ = REAL_CASES["223 mm demo wing, quick (gave Cd 0.72, Cl -4.5)"]
+    r = cc.check(make(tmp_path, resolution=args, cells=cells))
+    lv = levels(r)
+    assert lv["RESOLUTION"] == "FAIL" and r["status"] == "FAIL"
+    assert all(v == "PASS" for k, v in lv.items() if k != "RESOLUTION")
+    ok = cc.check(tmp_path / "case", allow_coarse=True)
+    assert levels(ok)["RESOLUTION"] == "WARN" and ok["status"] == "WARN"
+
+
+def test_a_rough_run_is_a_warning(tmp_path):
+    """The quick preset on a decent-sized wing warns (rough look), it does not fail."""
+    args, cells, _ = REAL_CASES["737 mm demo wing, quick, half"]
+    r = cc.check(make(tmp_path, resolution=args, cells=cells))
+    assert levels(r)["RESOLUTION"] == "WARN" and r["status"] == "WARN"

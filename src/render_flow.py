@@ -408,7 +408,9 @@ class Scenes:
             color_map("Cp", "Turbo", -2.5, 1.0)
             d.SetScalarBarVisibility(view, False)
         else:
-            pv.ColorBy(d, None)
+            # Plain colour: switch scalar colouring off by setting the property itself. pv.ColorBy(d, None) raises
+            # "invalid association string 'NONE'" in ParaView 6.2 when the display has no colour array set yet.
+            d.ColorArrayName = ["POINTS", ""]
             d.DiffuseColor = color
         return d
 

@@ -56,11 +56,21 @@ class WorkerS3:
         self.uploaded[key] = (Path(path).stat().st_size, (ExtraArgs or {}).get("ContentType"))
 
 
+# What run_job.py writes as the reason when the resolution check refuses a part (src/check_case.py, src/run_job.py).
+RESOLUTION_REASON = (
+    "RESOLUTION gate failed before meshing: Mesh too coarse for this part: only 5 surface cells along its 250 mm "
+    "length; only 0.6 cells across its 15.6 mm mean thickness; only 1.0 cells between its lowest point (50 mm) and "
+    "the ground (surface cells 50 mm on flat areas, 25 mm on curved areas and edges). The shape is not represented, "
+    "so the forces would mean nothing. Use a finer preset or a larger model.")
+
+
 class FakeRun:
     """Stands in for run_process: acts out the pipeline (status.json, results.json) or the renderer."""
 
     def __init__(self, clock, scenario="pass", render="ok", cancel_after=None, table=None):
-        """scenario: pass | fail_gate | stopped_gate | error | timeout | cancel | shutdown; render: ok | fail."""
+        """scenario: pass | fail_gate | stopped_gate | stopped_resolution | error | timeout | cancel | shutdown;
+        render: ok | fail | partial (two pictures drawn, three scenes failed, as in the real run on 12 Nov 2026).
+        """
         self.clock, self.scenario, self.render, self.calls = clock, scenario, render, []
         self.cancel_after, self.table, self.envs, self.specs = cancel_after, table, [], []
 
@@ -75,6 +85,14 @@ class FakeRun:
                 for name in ("01_hero.png", "02_side_slice.png", "orbit.mp4"):
                     (out / name).write_bytes(b"x" * 100)
                 return "exit:0"
+            if self.render == "partial":
+                out = Path(cmd[cmd.index("--out") + 1])
+                out.mkdir(parents=True, exist_ok=True)
+                for name in ("02_side_slice.png", "05_underside_pressure.png"):
+                    (out / name).write_bytes(b"x" * 100)
+                Path(log_path).write_text("[17:23:56] scene: under\n[17:23:56]   wrote 05_underside_pressure.png\n"
+                                          "RuntimeError: invalid association string 'NONE'\n"
+                                          "[17:23:57] done; FAILED scenes: hero, wake, orbit\n")
             return "exit:1"
         spec = json.loads(Path(cmd[2]).read_text())
         self.specs.append(spec)
@@ -105,6 +123,10 @@ class FakeRun:
                 {"level": "PASS", "message": "ok"}, {"level": "FAIL", "message": "The surface has holes."}]}))
             (d / "status.json").write_text(json.dumps({**status, "state": "stopped by gate",
                                                        "reason": "geometry inspection FAIL; see inspection.json"}))
+            return "exit:1"
+        if self.scenario == "stopped_resolution":
+            (d / "status.json").write_text(json.dumps({**status, "state": "stopped by gate",
+                                                       "reason": RESOLUTION_REASON}))
             return "exit:1"
         if self.scenario == "error":
             (d / "status.json").write_text(json.dumps({**status, "state": "error", "reason": "snappyHexMesh crashed"}))
@@ -264,6 +286,60 @@ def test_picture_failure_keeps_the_numbers(tmp_path):
     assert row["status"] == "done" and "pictures" in row["message"] and row["stages"]["render"]["state"] == "failed"
     assert [f["name"] for f in row["files"]] == ["summary.md", "results.zip"]
     assert len(sns.sent) == 1 and "Pictures failed" in sns.sent[0]["Subject"]
+
+
+def test_partly_failed_pictures_say_which_failed_and_the_drawn_ones_are_kept(tmp_path):
+    """Two of five scenes drew: the message names the three that failed, the two pictures are published, owner told."""
+    w, table, s3, sns, run = make_worker(tmp_path, render="partial")
+    jid = queue_job(table, s3)
+    w.process(w.claim_next())
+    row = table.items[jid]
+    assert row["status"] == "done" and row["stages"]["render"]["state"] == "failed"
+    assert ("Drew 2 of 5 pictures and videos; failed: streamlines, wake cross-sections, 360-degree video. "
+            "See render.log.") in row["message"]
+    assert [f["name"] for f in row["files"]] == ["02_side_slice.png", "05_underside_pressure.png", "summary.md",
+                                                 "results.zip"]
+    assert [f["title"] for f in row["files"][:2]] == ["Side view, speed", "Underside pressure"]
+    assert len(sns.sent) == 1 and "Drew 2 of 5" in sns.sent[0]["Message"]
+
+
+def test_render_problem_wording(tmp_path):
+    """The sentence for a render that did not end cleanly, with and without the renderer's own list of failures."""
+    log = tmp_path / "render.log"
+    nolog = tmp_path / "missing.log"
+    assert wk.render_problem("exit:1", nolog, "hero,side", 0) == \
+        "The pictures and video could not be completed (exit:1); see render.log."
+    assert wk.render_problem("timeout", nolog, "hero,side", 3).endswith("3 files were drawn before it stopped.")
+    assert wk.render_problem("exit:3", nolog, "hero,side", 1).endswith("1 file was drawn before it stopped.")
+    log.write_text("[1] scene: hero\nTraceback ...\n[2] done; FAILED scenes: hero, side, wake, under, orbit\n")
+    assert wk.render_problem("exit:1", log, "hero,side,wake,under,orbit", 0) == (
+        "Drew 0 of 5 pictures and videos; failed: streamlines, side view, wake cross-sections, underside pressure, "
+        "360-degree video. See render.log.")
+    log.write_text("[2] done; FAILED scenes: made_up\n")                 # a name it does not know is shown as it is
+    assert "failed: made_up." in wk.render_problem("exit:1", log, "hero,side", 1)
+    log.write_text("[2] done\n")                                           # no list: fall back to how it ended
+    assert wk.render_problem("exit:1", log, "hero", 0).startswith("The pictures and video could not be completed")
+
+
+def test_a_mesh_too_coarse_for_the_part_is_explained_in_plain_words(tmp_path):
+    """A resolution stop reads as 'too small for the quality you chose', with the counts and a hint about the units."""
+    w, table, s3, sns, run = make_worker(tmp_path, scenario="stopped_resolution")
+    jid = queue_job(table, s3)
+    w.process(w.claim_next())
+    row = table.items[jid]
+    assert row["status"] == "stopped"
+    for text in ("too small for the quality you chose", "only 5 surface cells along its 250 mm length",
+                 "only 0.6 cells across its 15.6 mm mean thickness", "check that the units you picked"):
+        assert text in row["message"], row["message"]
+    assert "RESOLUTION" not in row["message"] and "surface cells 50 mm on flat" not in row["message"]
+    assert len(sns.sent) == 1 and "stopped by a quality check" in sns.sent[0]["Subject"]
+
+
+def test_explain_stop_leaves_other_reasons_alone(tmp_path):
+    """Only the resolution wording is rewritten; any other reason, or none, comes through as before."""
+    assert wk.explain_stop(tmp_path, "mesh gate(s) failed: FLUID_VOLUME; not solving") == \
+        "mesh gate(s) failed: FLUID_VOLUME; not solving"
+    assert wk.explain_stop(tmp_path, "") == "A quality check stopped the run."
 
 
 def test_missing_paraview_is_reported_not_fatal(tmp_path):

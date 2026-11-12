@@ -13,7 +13,7 @@ pipeline: it checks before it trusts, and anything that goes wrong is reported r
 | Stage | What it adds | State |
 |---|---|---|
 | 1 | HTTPS site, private hosting, invite-only sign-in | **Live** at https://cfd.samuelojo.tech since 12 Nov 2026 |
-| 2 | Access requests, upload of 1 to 5 wings, queue, home-PC worker, live progress, results page, email alerts | Code complete and tested; **not yet deployed** |
+| 2 | Access requests, upload of 1 to 5 wings, queue, home-PC worker, live progress, results page, email alerts | **Live**, with one real run through it on 12 Nov 2026 (see [the first run](#the-first-real-run-stage-2-12-nov-2026)) |
 
 Sections below say which stage they describe. The words *validated* and *verified* keep their strict meaning from
 the main README (comparison with measurements, and numerics checked). Neither applies to the website: it is
@@ -161,9 +161,22 @@ This is the real sequence, including the one error, because plans rarely survive
 - A later change (a "show password" tick box) shipped the way described above: `terraform apply` showed the
   three expected file changes, and the cache was cleared.
 
-Stage 2's Terraform has been checked for matching braces and for resources that reference each other, but has
-**not yet been through `terraform validate` or `plan`**. Expect a small fix or two on the first plan, like the one
-above.
+### The first real run (stage 2, 12 Nov 2026)
+
+Stage 2's first plan was **45 to add, 5 to change, 0 to destroy**. Reading the Lambda code against its IAM policy
+found one missing permission: the API's existence check on an uploaded file needs `s3:ListBucket`, or S3 answers
+"forbidden" instead of "not found". It was added to `api.tf`. The first run then went through the site with the
+worker on the PC.
+
+![The results page for that run](images/website_first_run.png)
+
+*A rough test, to show the pipeline working. Take the numbers with a pinch of salt.* The run was a 737 mm wing,
+half-domain, Spalart-Allmaras, the quick preset, 20 m/s, moving ground. It took 53 seconds: 43,199 cells, Cd 0.5218,
+Cl -5.4557, all mesh and solver gates passing and the resolution gate warning that the mesh is too coarse for the part
+(16 surface cells along the length, 1.9 across the thickness). The forces were converged to six digits, so the
+warning is about mesh error, not convergence. All five pictures and the orbit video were made. Two things the run
+showed: the wake-slice picture is almost blank, and the page labelled the preset "Quick", which suggested more than
+it delivered, so the site now calls it Preview and puts a caution above the numbers of any Preview run.
 
 ## Security
 
@@ -201,14 +214,14 @@ Every alert is an email from one SNS topic, with a subject starting `[CFD site]`
 
 ## Testing
 
-`python -m pytest aws/tests` runs 109 tests (the browser tests skip themselves where Playwright is not installed):
+`python -m pytest aws/tests` runs 114 tests (the browser tests skip themselves where Playwright is not installed):
 
 | Tests | What they cover |
 |---|---|
 | 34 + 18 + 3 + 6 | The shared rules, the API, the health check and the admin tool, run against in-memory stand-ins for DynamoDB, S3 and SNS. The stand-in table rejects floats and any call shape the code does not use, as the real service would |
-| 27 | The worker, with a fake pipeline and fake ParaView: a good run, a FAIL gate, a crash, a timeout, a cancel, a restart, the unpack size cap, folder cleanup, two workers racing for one run, and the conversion of Linux paths to the Windows form ParaView needs |
+| 31 | The worker, with a fake pipeline and fake ParaView: a good run, a FAIL gate, a stop by the mesh-resolution check, a crash, a timeout, a cancel, a restart, the unpack size cap, folder cleanup, two workers racing for one run, a picture step that draws only some of its scenes, and the conversion of Linux paths to the Windows form ParaView needs |
 | 10 | The browser's zip maker, read back with Python's zip reader, `unzip` and the server's own check |
-| 11 | The real pages in headless Chromium under the production content-security policy (read from `site.tf`), talking to the real API code: sign-in, access request, a five-wing upload, live progress, results, cancelling, sign-out, token renewal, an expired session, phone and dark-mode layouts |
+| 12 | The real pages in headless Chromium under the production content-security policy (read from `site.tf`), talking to the real API code: sign-in, access request, a five-wing upload, live progress, results, the Standard default and the Preview and coarse-mesh cautions, cancelling, sign-out, token renewal, an expired session, phone and dark-mode layouts |
 
 Breaking the code on purpose (mutation checks) confirmed that the important tests fail when they should. The tests
 also found real bugs before any user could: the worker did not publish its final stage and counts, a ready-made
@@ -218,10 +231,11 @@ second machine found two faults in the tests themselves: one wrote to a folder t
 were written on, and one behaved differently where WSL's `wslpath` command exists. Both were fixed, and the suite now
 gives the same result with and without `wslpath`.
 
-**Not covered:** `terraform validate`, `plan` and `apply` for stage 2; real DynamoDB expressions and real S3
-signed-form and CORS behaviour; the API Gateway token check with a real Cognito token; the worker driving real
-OpenFOAM and the Windows ParaView from WSL; H.264 video playback in a particular browser. One real end-to-end run
-is the test that settles these.
+**What one real run settled (12 Nov 2026):** the stage 2 plan and apply; the real DynamoDB updates and the S3
+signed upload with its CORS rules; the API Gateway token check with a real Cognito token; and the worker driving real
+OpenFOAM and the Windows ParaView from WSL. **Still untested on the real services:** failure and cancel paths, the
+alert emails (including the worker-offline alert), the access-request form, more than one user, and H.264 video
+playback in a particular browser. These ran only against the stand-ins described above.
 
 ## Limits and cost
 
@@ -238,6 +252,7 @@ AWS budget alarm is recommended and is not part of the Terraform.
 
 ## Next
 
-Deploy stage 2 and do one real run; run the worker as a separate Linux user; Amazon SES for email; an
+A Standard-quality run of the same wing, to measure how far the first-look numbers move; a fix for the blank wake
+picture; the real-service tests listed above; run the worker as a separate Linux user; Amazon SES for email; an
 authenticator-app enrolment screen; an S3 backend for Terraform state; FluidX3D as a third solver (already shown
 on the page as "coming later").

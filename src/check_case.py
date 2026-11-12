@@ -6,6 +6,9 @@ Reads the log files and job.json, and answers:
   MESH_QUALITY   did checkMesh pass?
   FLUID_VOLUME   is the body really cut out of the mesh? (catches air left inside a
                  body, as happened in the nose of the first wing run)
+  RESOLUTION     is the mesh fine enough for this part? (cells along its length, across its thickness and in
+                 the ground gap, and in total; catches a part too small for the preset, which otherwise
+                 "passes" every other gate and gives meaningless numbers)
   SOLVER_END     did the solver reach the end?
   CONVERGED      have Cd and Cl stopped moving over the last part of the run?
   UNSTEADY       do the forces swing strongly around their mean? (warning only: use averaged values)
@@ -29,7 +32,21 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import inspect_geometry as ig  # noqa: E402
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
+
+# RESOLUTION limits as (FAIL below, WARN below). They were set against the repo's own runs, all measured the same
+# way (see resolution_gate): the validated Zerihan wing at the standard preset has 40 cells along its length, 5.0
+# across its mean thickness and 8 in the ground gap; the PERRINN half wing has 236, 14 and 27; both pass. The first
+# website demo (a 250 mm wing at the quick preset) had 5, 0.6 and 1 cells and 7,893 cells in total: it gave Cd 0.72
+# and Cl -4.5 and passed every other gate. A gap check never fails: the quick preset on the Ahmed body (a
+# deliberate smoke test) has one cell in its 50 mm ground gap.
+RESOLUTION_LIMITS = {
+    "length": (8, 30),           # body length / surface cell size on flat areas
+    "thickness": (1, 4),         # mean thickness (2 x volume / surface area) / finest surface cell size
+    "gap": (0, 5),               # lowest point above the ground / surface cell size on flat areas
+    "cells": (20_000, 100_000),  # cells in the whole mesh
+}
+_LEVEL_ORDER = {"PASS": 0, "WARN": 1, "FAIL": 2}
 
 
 def read(path: Path) -> str | None:
@@ -89,9 +106,71 @@ def expected_volumes(case: Path, job: dict | None):
     return dom, abs(m["volume_total"])
 
 
+def resolution_gate(job: dict | None, cells: int | None = None, allow_coarse: bool = False) -> tuple[dict, dict | None]:
+    """Is the mesh fine enough for this part? Returns (gate, details); details is None if the gate cannot be worked out.
+
+    It uses only what make_case.py wrote to job.json (the part's size and the preset's cell sizes), so it can run
+    before meshing (cells=None) and again afterwards with the real cell count. Snappy's refinement level n means cells
+    of base_cell / 2^n, and a surface gets the lower level on flat areas and the higher one on curved areas and edges.
+    Three counts are made:
+      length     body length / flat-surface cell: can the shape be drawn at all?
+      thickness  mean thickness / finest surface cell. The mean thickness is 2 x volume / surface area (a half model's
+                 volume is doubled back), which is the thickness of a flat plate and needs no knowledge of the shape.
+      gap        lowest point above the ground / flat-surface cell.
+    plus the total cell count when it is known. The gate level is the worst of them (limits: RESOLUTION_LIMITS).
+    allow_coarse turns a FAIL into a WARN, for a smoke test that is deliberately coarse.
+    """
+    try:
+        p, s = job["parameters"], job["input_stl"]
+        base, levels = float(p["base_cell_m"]), [int(v) for v in p["surface_level"]]
+        lo, hi = s["bbox_min"], s["bbox_max"]
+        volume, area = float(s["volume_m3"]), float(s["surface_area_m2"])
+        length, gap = float(hi[0]) - float(lo[0]), float(lo[2])
+    except (TypeError, KeyError, ValueError, IndexError):
+        return {"level": "WARN", "code": "RESOLUTION",
+                "message": "Cannot check: job.json has no body size or surface cell size."}, None
+    h_flat, h_fine = base / 2 ** min(levels), base / 2 ** max(levels)
+    if str(p.get("symmetry", "")).startswith("half model"):
+        volume *= 2                                  # job.json holds the volume of the meshed half
+    thickness = 2 * volume / area if area > 0 and volume > 0 else None
+    measured = {"length": length / h_flat, "thickness": thickness / h_fine if thickness else None,
+                "gap": gap / h_flat, "cells": cells}
+    phrase = {"length": f"only {measured['length']:.0f} surface cells along its {length * 1000:.0f} mm length",
+              "thickness": (f"only {measured['thickness']:.1f} cells across its {thickness * 1000:.1f} mm mean thickness"
+                            if thickness else ""),
+              "gap": f"only {measured['gap']:.1f} cells between its lowest point ({gap * 1000:.0f} mm) and the ground",
+              "cells": f"only {cells:,} cells in the whole mesh" if cells is not None else ""}
+    found = {}
+    for key, value in measured.items():
+        if value is None:
+            continue
+        fail_below, warn_below = RESOLUTION_LIMITS[key]
+        found[key] = "FAIL" if value < fail_below else "WARN" if value < warn_below else "PASS"
+    level = max(found.values(), key=_LEVEL_ORDER.get)
+    cell_text = f"surface cells {h_flat * 1000:.3g} mm on flat areas, {h_fine * 1000:.3g} mm on curved areas and edges"
+    if level == "PASS":
+        counts = [f"{measured['length']:.0f} cells along its length"]
+        if measured["thickness"] is not None:
+            counts.append(f"{measured['thickness']:.1f} across its mean thickness")
+        counts.append(f"{measured['gap']:.1f} in the ground gap")
+        msg = f"{cell_text}: {', '.join(counts)}" + (f"; {cells:,} cells in total." if cells is not None else ".")
+    else:
+        problems = "; ".join(phrase[k] for k, v in found.items() if v != "PASS")
+        msg = f"Mesh too coarse for this part: {problems} ({cell_text}). " + (
+            "The shape is not represented, so the forces would mean nothing. Use a finer preset or a larger model."
+            if level == "FAIL" else "Treat the forces as a rough first look, not as a result.")
+        if level == "FAIL" and allow_coarse:
+            level, msg = "WARN", "Accepted because the job sets allow_coarse. " + msg
+    details = {"surface_cell_flat_m": h_flat, "surface_cell_fine_m": h_fine, "mean_thickness_m": thickness,
+               "length_cells": measured["length"], "thickness_cells": measured["thickness"],
+               "gap_cells": measured["gap"], "cells": cells, "limits": RESOLUTION_LIMITS, "checks": found}
+    return {"level": level, "code": "RESOLUTION", "message": msg}, details
+
+
 def check(case: Path, reference: Path | None = None, window_frac: float = 0.2,
           tol_pass: float = 0.01, tol_warn: float = 0.05,
-          illegal_frac_warn: float = 1e-4, swing_warn: float = 0.05, skew_frac_warn: float = 1e-5) -> dict:
+          illegal_frac_warn: float = 1e-4, swing_warn: float = 0.05, skew_frac_warn: float = 1e-5,
+          allow_coarse: bool = False) -> dict:
     """Run every quality gate on a finished case and return the verdict as a dictionary.
 
     case: the case folder (needs the log.* files and job.json written by make_case and run_job).
@@ -101,6 +180,7 @@ def check(case: Path, reference: Path | None = None, window_frac: float = 0.2,
     illegal_frac_warn: share of illegal mesher faces above which the mesh gate fails (below it, a warning).
     swing_warn: peak-to-peak force swing, as a share of the mean, above which the flow counts as unsteady.
     skew_frac_warn: share of highly skewed faces that checkMesh may report and still only warn.
+    allow_coarse: let a mesh too coarse for the part (RESOLUTION) warn instead of fail.
 
     Returns {case, status, gates, final, comparison, mesh, job, tool, tool_version}. status is the worst
     gate level (PASS, WARN or FAIL).
@@ -185,6 +265,11 @@ def check(case: Path, reference: Path | None = None, window_frac: float = 0.2,
         else:
             gate("WARN", "FLUID_VOLUME", txt + ": partly. Check the geometry and the mesh around it.")
 
+    # Gate RESOLUTION: is the mesh fine enough for this part? (Everything above can pass on a mesh too coarse to
+    # draw the part; the numbers are then meaningless.)
+    res_gate, res_details = resolution_gate(job, int(cells[-1]) if cells else None, allow_coarse)
+    gates.append(res_gate)
+
     # Gates SOLVER_END, CONVERGED and UNSTEADY come from the solver log.
     solver = read(case / "log.foamRun")
     hist = force_history(solver) if solver else {"time": [], "Cd": [], "Cl": [], "Cm": []}
@@ -263,7 +348,8 @@ def check(case: Path, reference: Path | None = None, window_frac: float = 0.2,
             "comparison": comparison, "mesh": {"cells": int(cells[-1]) if cells else None,
                                                "regions_reported": regions[-1] if regions else None,
                                                "total_volume_m3": total_volume,
-                                               "body_volume_removed_fraction": removed_frac},
+                                               "body_volume_removed_fraction": removed_frac,
+                                               "resolution": res_details},
             "job": {k: job[k] for k in ("tool", "tool_version", "parameters")} if job else None,
             "tool": "check_case.py", "tool_version": __version__}
 

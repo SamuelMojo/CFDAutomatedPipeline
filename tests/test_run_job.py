@@ -28,11 +28,11 @@ pytestmark = pytest.mark.skipif(not TUT.is_dir(), reason="OpenFOAM tutorials not
 class FakeFoam:
     """Stands in for OpenFOAM. `cd(i)` gives drag at iteration i; `leak` breaks the volume gate."""
 
-    def __init__(self, cd=lambda i: 0.25 + 0.05 * np.exp(-i / 100), leak=False, mesh_ok=True):
+    def __init__(self, cd=lambda i: 0.25 + 0.05 * np.exp(-i / 100), leak=False, mesh_ok=True, cells=123456):
         """cd(i) gives the drag coefficient at iteration i; leak puts air inside the body; mesh_ok False makes
-        snappyHexMesh fail.
+        snappyHexMesh fail; cells is the cell count snappyHexMesh reports.
         """
-        self.cd, self.leak, self.mesh_ok = cd, leak, mesh_ok
+        self.cd, self.leak, self.mesh_ok, self.cells = cd, leak, mesh_ok, cells
         self.calls = []
         self.it = 0
 
@@ -42,7 +42,7 @@ class FakeFoam:
         name = next(c for c in cmd if c not in ("mpirun", "-np") and not c.isdigit())
         text = "End\n"
         if name == "snappyHexMesh":
-            text = "Layer mesh : cells:123456  faces:400000  points:1\n" + (
+            text = f"Layer mesh : cells:{self.cells}  faces:400000  points:1\n" + (
                 "Finished meshing without any errors\n" if self.mesh_ok else "FOAM FATAL ERROR\n")
         elif name == "checkMesh":
             exp = json.loads((case / "job.json").read_text())["expected"]
@@ -59,12 +59,12 @@ class FakeFoam:
             f.write(text)
 
 
-def job_file(tmp_path, **extra):
-    """Write a small job file (and its box STL) in tmp_path and return the job file's path; extra keys override the
-    defaults.
+def job_file(tmp_path, size=(1.0, 0.4, 0.3), **extra):
+    """Write a small job file (and its box STL, size = length, width, height in metres) in tmp_path and return the job
+    file's path; extra keys override the defaults.
     """
     stl = tmp_path / "box.stl"
-    ig.write_stl_binary(stl, fx.cube(1.0) * [1.0, 0.4, 0.3] + [-1.0, -0.2, 0.05])
+    ig.write_stl_binary(stl, fx.cube(1.0) * list(size) + [-size[0], -size[1] / 2, 0.05])
     spec = {"name": "boxtest", "geometry": "box.stl", "units": "m", "preset": "quick",
             "case": {"speed": 40, "ground": "fixed", "aref": 0.12, "processors": 2},
             "solve": {"min_iterations": 200, "max_iterations": 1000, "block": 200}}
@@ -182,3 +182,55 @@ def test_z_shift_moves_body_and_refuses_the_ground(tmp_path):
     job.dir.mkdir(parents=True)
     with pytest.raises(rj.JobError):
         job._inspect()
+
+
+# ---- the RESOLUTION gate in the job chain ------------------------------------------------------------------------ #
+SMALL = (0.1, 0.05, 0.02)          # a 100 mm body: the quick preset's 25-50 mm surface cells cannot draw it
+
+
+def test_too_coarse_a_preset_stops_before_any_meshing(tmp_path):
+    """A part far smaller than the preset's cells is refused as soon as the case exists: nothing is meshed."""
+    fake = FakeFoam()
+    spec = rj.load_job(job_file(tmp_path, size=SMALL))
+    job = rj.Job(spec, tmp_path / "jobs", TUT, runner=fake, stamp="t")
+    with pytest.raises(rj.GateStop, match="RESOLUTION gate failed before meshing"):
+        job.run()
+    assert fake.calls == []                                       # not even surfaceFeatures or blockMesh
+    st = json.loads((job.dir / "status.json").read_text())
+    assert st["state"] == "stopped by gate" and "Mesh too coarse" in st["reason"]
+    assert [s["stage"] for s in st["stages"]] == ["inspect", "case"] and st["stages"][-1]["state"] == "failed"
+
+
+def test_allow_coarse_lets_a_deliberate_smoke_test_go_ahead_and_still_says_so(tmp_path):
+    """With allow_coarse the same job runs to the end, and the result carries the warning, not a quiet PASS."""
+    fake = FakeFoam()
+    spec = rj.load_job(job_file(tmp_path, size=SMALL, allow_coarse=True))
+    assert spec["allow_coarse"] is True
+    job = rj.Job(spec, tmp_path / "jobs", TUT, runner=fake, stamp="t")
+    r = job.run()
+    gate = next(g for g in r["gates"] if g["code"] == "RESOLUTION")
+    assert gate["level"] == "WARN" and gate["message"].startswith("Accepted because the job sets allow_coarse.")
+    assert r["status"] == "WARN" and "RESOLUTION" in (job.dir / "summary.md").read_text()
+    assert any("snappyHexMesh" in c for c in fake.calls) and any("foamRun" in c for c in fake.calls)
+
+
+def test_few_cells_after_meshing_stop_the_job_before_solving(tmp_path):
+    """The gate runs again after meshing with the real cell count: a mesh of 5,000 cells is not solved."""
+    fake = FakeFoam(cells=5000)
+    spec = rj.load_job(job_file(tmp_path))                        # 1 m box: the sizes alone only warn
+    job = rj.Job(spec, tmp_path / "jobs", TUT, runner=fake, stamp="t")
+    with pytest.raises(rj.GateStop, match="RESOLUTION"):
+        job.run()
+    assert any("snappyHexMesh" in c for c in fake.calls) and not any("foamRun" in c for c in fake.calls)
+
+
+def test_the_normal_box_job_only_warns_about_resolution_and_records_the_numbers(tmp_path):
+    """The 1 m test box at the quick preset is rough (20 cells along it, 1 in the gap): a warning, and the job finishes."""
+    spec = rj.load_job(job_file(tmp_path))
+    assert spec["allow_coarse"] is False
+    job = rj.Job(spec, tmp_path / "jobs", TUT, runner=FakeFoam(), stamp="t")
+    r = job.run()
+    assert {g["code"]: g["level"] for g in r["gates"]}["RESOLUTION"] == "WARN"
+    res = r["mesh"]["resolution"]
+    assert res["cells"] == 123456 and abs(res["length_cells"] - 20) < 0.01
+    assert json.loads((job.case / "results.json").read_text())["mesh"]["resolution"]["cells"] == 123456
