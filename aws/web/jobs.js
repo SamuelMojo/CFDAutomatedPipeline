@@ -33,7 +33,7 @@
     stopped: "Stopped by a check", failed: "Failed", cancelled: "Cancelled",
   };
   const SOLVER_NAMES = { SA: "Spalart-Allmaras", SST: "k-omega SST" };
-  const PRESET_NAMES = { quick: "Quick quality", standard: "Standard quality" };
+  const PRESET_NAMES = { quick: "Preview quality", standard: "Standard quality" };   // "quick" is the stored key
   const GROUND_NAMES = { moving: "moving ground", fixed: "fixed floor" };
   const UNIT_CHOICES = [["mm", "millimetres (mm)"], ["cm", "centimetres (cm)"], ["m", "metres (m)"], ["in", "inches (in)"]];
   const POLL_ACTIVE_MS = 8000;       // while a run is unfinished
@@ -562,12 +562,35 @@
 
   // ---- results -------------------------------------------------------------------------------------------
 
+  // A plain-words caution to sit above the numbers of a rough run: a Preview run, or any run whose mesh the
+  // RESOLUTION check found too coarse for the part. Returns "" when the numbers need no such caution.
+  function roughNote(job, gates) {
+    const coarse = gates.some((g) => g.code === "RESOLUTION" && ["WARN", "FAIL"].includes(g.level));
+    const preview = (job.options || {}).preset === "quick";
+    if (coarse && preview) {
+      return "Preview only: the mesh is too coarse for this part to trust these numbers. "
+        + "Run it again at Standard quality for numbers you can quote.";
+    }
+    if (coarse) {
+      return "The mesh is too coarse for this part, so treat these numbers as a rough first look. "
+        + "Check the model's units, or use a larger model.";
+    }
+    if (preview) {
+      return "Preview quality: good for checking that the model and the flow look right, not for numbers you "
+        + "want to quote. Run it again at Standard quality for those.";
+    }
+    return "";
+  }
+
   // The numbers, quality checks and (once opened) pictures, video and downloads of a finished run.
   function resultsSection(job) {
     const sum = job.summary || {};
+    const gates = Array.isArray(sum.gates) ? sum.gates : [];
     const out = [];
     const took = secondsBetween(job.started_at, job.finished_at);
     if (took !== null) out.push(h("p", { class: "meta", text: `Took ${fmtDuration(took)}.` }));
+    const note = roughNote(job, gates);
+    if (note) out.push(h("p", { class: "banner warn rough-note", role: "note", text: note }));
     const tiles = [["Drag, Cd", num(sum.cd, 4)], ["Lift, Cl", num(sum.cl, 4)], ["CdA (m²)", num(sum.s_cd, 5)],
       ["ClA (m²)", num(sum.s_cl, 5)], ["Reference area (m²)", num(sum.aref_m2, 4)],
       ["Iterations", typeof sum.iterations === "number" ? String(sum.iterations) : "-"],
@@ -577,7 +600,6 @@
       h("dd", { text: v })))));
     out.push(h("p", { class: "hint", text: "Negative lift means downforce. CdA and ClA are the coefficient times "
       + "the reference area, so different wings can be compared directly." }));
-    const gates = Array.isArray(sum.gates) ? sum.gates : [];
     if (gates.length) {
       const serious = gates.some((g) => ["FAIL", "WARN", "ACTION"].includes(g.level));
       out.push(h("details", { open: serious }, h("summary", { text: `Quality checks (${gates.length})` }),

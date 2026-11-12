@@ -61,6 +61,9 @@ TITLES = {"01_hero.png": "Streamlines", "02_side_slice.png": "Side view, speed",
           "orbit.mp4": "360-degree video"}
 TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".mp4": "video/mp4", ".md": "text/markdown; charset=utf-8",
          ".zip": "application/zip"}
+# The renderer's scene names (src/render_flow.py), in plain words for the message about a partly failed render.
+SCENE_NAMES = {"hero": "streamlines", "side": "side view", "wake": "wake cross-sections", "vortex": "vortex cores",
+               "under": "underside pressure", "ground": "road footprint", "orbit": "360-degree video"}
 
 
 def clean_env() -> dict:
@@ -180,7 +183,9 @@ def summarise(job_dir: Path, options: dict) -> dict:
 
 
 def explain_stop(job_dir: Path, reason: str) -> str:
-    """A user-readable reason for a stopped run: the failed geometry checks if there are any, else the raw reason."""
+    """A user-readable reason for a stopped run: the failed geometry checks if there are any, a mesh too coarse for the
+    part in plain words, else the raw reason.
+    """
     try:
         checks = json.loads((job_dir / "inspection.json").read_text()).get("checks", [])
         bad = [c["message"] for c in checks if c.get("level") in ("FAIL", "ACTION")]
@@ -188,7 +193,35 @@ def explain_stop(job_dir: Path, reason: str) -> str:
             return "The geometry check did not pass: " + " ".join(bad[:3])
     except (OSError, ValueError):
         pass
+    marker = "Mesh too coarse for this part:"
+    if marker in reason:
+        found = re.split(r"\s*\(surface cells", reason.split(marker, 1)[1])[0].strip()
+        return (f"This model is too small for the quality you chose, so the mesh cannot draw it ({found}). "
+                "Use a higher quality setting if you have not already, and check that the units you picked match the "
+                "file: a model entered in the wrong units can look a thousand times too small.")
     return reason or "A quality check stopped the run."
+
+
+def render_problem(verdict: str, log_path: Path, scenes: str, drawn: int) -> str:
+    """One sentence for a picture step that did not end cleanly: which pictures failed, or how it stopped.
+
+    The renderer draws each scene on its own and, if some fail, ends with 'done; FAILED scenes: a, b' in render.log;
+    that line gives the names. If it is missing (crash, time limit) the sentence says how the step ended and how many
+    files had been drawn by then.
+    """
+    try:
+        text = log_path.read_text(errors="replace")
+    except OSError:
+        text = ""
+    wanted = [s.strip() for s in str(scenes).split(",") if s.strip()]
+    m = re.search(r"FAILED scenes: ([A-Za-z0-9_, ]+)", text)
+    if m:
+        failed = [s.strip() for s in m.group(1).split(",") if s.strip()]
+        names = ", ".join(SCENE_NAMES.get(s, s) for s in failed)
+        return (f"Drew {max(len(wanted) - len(failed), 0)} of {len(wanted)} pictures and videos; failed: {names}. "
+                "See render.log.")
+    done = f" {drawn} file{'s were' if drawn != 1 else ' was'} drawn before it stopped." if drawn else ""
+    return f"The pictures and video could not be completed ({verdict}); see render.log.{done}"
 
 
 def clean_old_jobs(jobs_dir: Path, keep_days: float, now: float | None = None) -> int:
@@ -422,7 +455,10 @@ class Worker:
                 verdict = self.run(cmd, clean_env(), job_dir / "render.log",
                                    self.cfg["render_timeout_minutes"] * 60, self.idle_tick)
                 if verdict != "exit:0":
-                    problem = f"The pictures and video could not be completed ({verdict}); see render.log."
+                    drawn = len([p for p in images.glob("*") if p.suffix.lower() in (".png", ".jpg", ".mp4")]) \
+                        if images.is_dir() else 0
+                    problem = render_problem(verdict, job_dir / "render.log",
+                                             {**DEFAULTS["render"], **self.cfg.get("render", {})}["scenes"], drawn)
             else:
                 problem = "No .foam file was found to draw pictures from."
         else:

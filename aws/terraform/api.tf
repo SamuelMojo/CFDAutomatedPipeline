@@ -69,6 +69,16 @@ data "aws_iam_policy_document" "api" {
     resources = ["${aws_s3_bucket.uploads.arn}/*"]
   }
 
+  # Without s3:ListBucket, S3 answers "access denied" instead of "not found" for a key that does not exist. The
+  # submit step checks whether the upload has arrived, so it needs the honest answer to tell a missing file
+  # ("try again in a moment") from a real permission fault. It does let this function list the key names in the
+  # uploads bucket (never the results bucket); the code never does, and reading a file still needs s3:GetObject.
+  statement {
+    sid       = "UploadsExistenceCheck"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.uploads.arn]
+  }
+
   statement {
     sid       = "Results"
     actions   = ["s3:GetObject"]

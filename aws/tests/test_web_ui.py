@@ -154,7 +154,7 @@ def wing_files(tmp_path):
     return paths
 
 
-def queue_via_api(be, sub="sub-alice", email="alice@example.com", n=1, label="wing"):
+def queue_via_api(be, sub="sub-alice", email="alice@example.com", n=1, label="wing", preset="quick"):
     """Create runs straight through the API (as if made earlier), each with a valid zip uploaded and queued."""
     ids = []
     for i in range(n):
@@ -162,7 +162,7 @@ def queue_via_api(be, sub="sub-alice", email="alice@example.com", n=1, label="wi
             "routeKey": "POST /jobs", "pathParameters": {}, "requestContext": {
                 "http": {"sourceIp": "1.1.1.1"},
                 "authorizer": {"jwt": {"claims": {"sub": sub, "email": email}}}},
-            "body": json.dumps({"settings": {"solver": "SA", "preset": "quick", "speed": 20, "ground": "moving"},
+            "body": json.dumps({"settings": {"solver": "SA", "preset": preset, "speed": 20, "ground": "moving"},
                                 "files": [{"filename": f"{label}{i}.zip", "size": 900, "units": "mm",
                                            "label": f"{label} {i}"}]})}))
         assert status == 200, out
@@ -397,6 +397,8 @@ def test_progress_is_followed_live_and_results_are_shown(make_session, backends,
     expect(done.locator(".numbers")).to_contain_text("PASS")
     expect(done).to_contain_text("Residuals oscillate slightly")
     expect(done).to_contain_text("Negative lift means downforce")
+    expect(done.locator(".meta", has_text="Spalart")).to_contain_text("Preview quality")   # "quick" is called Preview
+    expect(done.locator(".rough-note")).to_contain_text("Run it again at Standard quality")
     assert not done.locator("img").count()                                 # nothing is fetched until it is opened
     done.locator("summary", has_text="Pictures, video and downloads").click()
     expect(done.locator("img")).to_have_count(2)
@@ -413,6 +415,41 @@ def test_progress_is_followed_live_and_results_are_shown(make_session, backends,
     p.wait_for_timeout(500)
     assert done.locator("video").get_attribute("data-same") == "1"
     expect(p.locator('.run[data-status="queued"]')).to_have_count(1)
+
+
+def test_standard_is_the_default_and_rough_runs_are_marked(make_session, backends):
+    """The form offers Preview and Standard with Standard chosen; a Preview run, or any run whose mesh was found too
+    coarse for the part, carries a plain-words caution above its numbers, and a clean Standard run carries none."""
+    s = make_session()
+    coarse = {"code": "RESOLUTION", "level": "WARN", "message": "Mesh too coarse for this part: only 16 surface cells."}
+    clean = {"code": "RESOLUTION", "level": "PASS", "message": "Surface cells 6.25 mm."}
+    wings = {}                                                    # label -> (preset, the RESOLUTION gate)
+    for label, preset, gate in (("wing-a", "quick", coarse), ("wing-b", "quick", clean),
+                                ("wing-c", "standard", coarse), ("wing-d", "standard", clean)):
+        run_id = queue_via_api(backends, label=label, preset=preset)[0]
+        wings[label] = (preset, gate)
+        ui.worker_update(backends, run_id, status=cc.DONE, stage="Finished", finished_at=cc.utc_now(),
+                         message="The run finished.",
+                         summary={"result": "WARN" if gate is coarse else "PASS", "cd": 0.5, "cl": -1.0,
+                                  "iterations": 300, "cells": 43199, "gates": [gate]})
+    ui.worker_online(backends)
+    p = s.sign_in()
+    expect(p.locator("#set-preset")).to_have_value("standard")
+    expect(p.locator("#set-preset option")).to_have_text(["Preview: fast, rough first look",
+                                                          "Standard: slower, numbers you can quote"])
+    expect(p.locator(".run")).to_have_count(4)
+
+    def note(label):
+        return p.locator(f'.run:has-text("{label} 0") .rough-note')
+
+    expect(note("wing-a")).to_contain_text("Preview only: the mesh is too coarse for this part")
+    expect(note("wing-a")).to_contain_text("Run it again at Standard quality")
+    expect(note("wing-b")).to_contain_text("Preview quality: good for checking")
+    expect(note("wing-c")).to_contain_text("The mesh is too coarse for this part, so treat these numbers as a rough")
+    expect(note("wing-c")).not_to_contain_text("Run it again at Standard")      # it already was Standard
+    expect(note("wing-d")).to_have_count(0)
+    expect(p.locator('.run:has-text("wing-b 0") .meta', has_text="Spalart")).to_contain_text("Preview quality")
+    expect(p.locator('.run:has-text("wing-d 0") .meta', has_text="Spalart")).to_contain_text("Standard quality")
 
 
 def test_failures_stops_cancelling_and_offline_worker(make_session, backends):

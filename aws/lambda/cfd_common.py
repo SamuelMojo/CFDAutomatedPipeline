@@ -69,7 +69,7 @@ def validate_settings(raw) -> dict:
     solver = raw.get("solver", "SA")
     if solver not in SOLVERS:
         raise ValidationError(f"Solver must be one of {', '.join(SOLVERS)}.")
-    preset = raw.get("preset", "quick")
+    preset = raw.get("preset", "standard")             # "quick" is shown as Preview on the site; it is not the default
     if preset not in PRESETS:
         raise ValidationError(f"Quality must be one of {', '.join(PRESETS)}.")
     ground = raw.get("ground", "moving")

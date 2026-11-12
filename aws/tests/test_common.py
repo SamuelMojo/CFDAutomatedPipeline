@@ -23,7 +23,7 @@ def fetcher(data: bytes):
 # ---- options ---------------------------------------------------------------
 def test_settings_defaults_and_rounding():
     """Missing keys fall back to safe defaults; the speed is rounded."""
-    assert cc.validate_settings({}) == {"solver": "SA", "preset": "quick", "speed": 20.0, "ground": "moving"}
+    assert cc.validate_settings({}) == {"solver": "SA", "preset": "standard", "speed": 20.0, "ground": "moving"}
     assert cc.validate_settings({"speed": "31.23456"})["speed"] == 31.235
 
 
