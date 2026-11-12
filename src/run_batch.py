@@ -29,6 +29,7 @@ __version__ = "0.1.0"
 
 
 def row_for(spec: dict, job: rj.Job | None, result: dict | None, outcome: str, seconds: float) -> dict:
+    """One row of the batch report; also works for a job that failed before it started (job is None)."""
     f = (result or {}).get("final") or {}
     comp = (result or {}).get("comparison") or {}
     st = job.status if job else {}
@@ -44,10 +45,12 @@ def row_for(spec: dict, job: rj.Job | None, result: dict | None, outcome: str, s
 
 
 def fmt(v, spec="{:.4f}"):
+    """Format a number for the report table, or an en dash if it is missing."""
     return "–" if v is None else spec.format(v)
 
 
 def report_md(rows: list[dict], started: str) -> str:
+    """The batch report as markdown: one table row per job, then a list of problems."""
     lines = [f"# Batch started {started}", "",
              "| Job | Outcome | Result | Cells | Iterations | Cd | Cd vs ref | Cl | Cl vs ref | Minutes |",
              "|---|---|---|---|---|---|---|---|---|---|"]
@@ -63,6 +66,11 @@ def report_md(rows: list[dict], started: str) -> str:
 
 
 def run_batch(job_files: list[Path], jobs_dir: Path, tutorial: Path, runner=rj.run_command) -> list[dict]:
+    """Validate every job file first, then run the jobs one after another and return one row per job.
+
+    The report (batch_<time>.md and .json) is rewritten after each job. A job that fails or is stopped by a gate
+    does not stop the batch. runner is how commands are executed; tests pass a fake one.
+    """
     specs = [rj.load_job(p) for p in job_files]           # validate everything first
     for s in specs:
         if not s["geometry"].is_file():
@@ -100,6 +108,8 @@ def run_batch(job_files: list[Path], jobs_dir: Path, tutorial: Path, runner=rj.r
 
 
 def main(argv=None) -> int:
+    """Command-line entry point. Returns 0 if every job finished with PASS or WARN, 1 otherwise, 2 if nothing was run.
+    """
     ap = argparse.ArgumentParser(description="Run several CFD job files one after another.")
     ap.add_argument("jobs", nargs="+", type=Path, help="job files (JSON)")
     ap.add_argument("--jobs-dir", type=Path, default=Path(os.environ.get("FOAM_RUN", str(Path.home()))) / "jobs")

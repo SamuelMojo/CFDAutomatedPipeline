@@ -20,6 +20,7 @@ pytestmark = pytest.mark.skipif(not TUT.is_dir(), reason="OpenFOAM tutorials not
 
 
 def box_stl(tmp_path):
+    """Write a 1.0 x 0.4 x 0.3 m box, 50 mm above the ground, as a binary STL and return its path."""
     p = tmp_path / "box.stl"
     tris = fx.cube(1.0) * [1.0, 0.4, 0.3] + [-1.0, -0.2, 0.05]   # 1.0 x 0.4 x 0.3 m, 50 mm off the ground
     ig.write_stl_binary(p, tris)
@@ -27,6 +28,9 @@ def box_stl(tmp_path):
 
 
 def test_case_files_and_job(tmp_path):
+    """A case has all the expected files, a no-slip floor, the force-coefficient settings, and a job.json whose body
+    volume matches the box.
+    """
     case = tmp_path / "c1"
     job = mc.make_case(box_stl(tmp_path), case, TUT, speed=40, ground="fixed", aref=0.12)
     for f in ("system/blockMeshDict", "system/snappyHexMeshDict", "system/forceCoeffs",
@@ -42,6 +46,7 @@ def test_case_files_and_job(tmp_path):
 
 
 def test_never_overwrites(tmp_path):
+    """An existing case folder is never overwritten."""
     case = tmp_path / "c2"
     case.mkdir()
     with pytest.raises(mc.CaseError):
@@ -49,6 +54,7 @@ def test_never_overwrites(tmp_path):
 
 
 def test_rejects_open_surface(tmp_path):
+    """An STL with a hole is rejected before any case is written."""
     p = tmp_path / "open.stl"
     ig.write_stl_binary(p, fx.open_copy(fx.cube(1.0) + [0, 0, 0.1]))
     with pytest.raises(mc.CaseError):
@@ -56,6 +62,9 @@ def test_rejects_open_surface(tmp_path):
 
 
 def test_spalart_allmaras_option(tmp_path):
+    """Choosing Spalart-Allmaras replaces k and omega with nuTilda, and sets the model, wall function, schemes and
+    solver entries.
+    """
     case = tmp_path / "sa"
     job = mc.make_case(box_stl(tmp_path), case, TUT, speed=40, ground="fixed", aref=0.12,
                        turbulence_model="SpalartAllmaras")
@@ -74,6 +83,7 @@ def test_spalart_allmaras_option(tmp_path):
 
 
 def test_default_model_unchanged_and_bad_model(tmp_path):
+    """The default stays k-omega SST with k and omega, and an unknown model name is refused."""
     case = tmp_path / "sst"
     mc.make_case(box_stl(tmp_path), case, TUT)
     assert "kOmegaSST" in (case / "constant/momentumTransport").read_text()
@@ -83,6 +93,7 @@ def test_default_model_unchanged_and_bad_model(tmp_path):
 
 
 def test_open_surface_needs_allow_open(tmp_path):
+    """An open surface needs allow_open=True, and then the case is made with the surface warnings recorded."""
     import inspect_geometry as ig
     stl = box_stl(tmp_path)
     tris = ig.read_stl(stl)
@@ -94,6 +105,9 @@ def test_open_surface_needs_allow_open(tmp_path):
 
 
 def test_half_model_with_symmetry_plane(tmp_path):
+    """A half model has half the domain and cells, a symmetry plane at Y = 0, the full surface, and Aref and volumes
+    halved.
+    """
     import inspect_geometry as ig
     import re as _re
     full = mc.make_case(box_stl(tmp_path), tmp_path / "full", TUT, aref=0.12)
@@ -116,6 +130,7 @@ def test_half_model_with_symmetry_plane(tmp_path):
 
 
 def test_half_model_needs_a_symmetric_body(tmp_path):
+    """A body that is not symmetric about Y = 0 is refused as a half model."""
     import inspect_geometry as ig
     p = tmp_path / "off.stl"
     ig.write_stl_binary(p, fx.cube(1.0) * [1.0, 0.4, 0.3] + [-1.0, -0.1, 0.05])     # Y -0.1 .. 0.3
@@ -124,6 +139,7 @@ def test_half_model_needs_a_symmetric_body(tmp_path):
 
 
 def test_merge_layer_faces_switch(tmp_path):
+    """mergeFaces is left as in the tutorial by default and set to false only on request."""
     mc.make_case(box_stl(tmp_path), tmp_path / "a", TUT, layers=1, layer_thickness=0.001)
     assert "mergeFaces" not in (tmp_path / "a/system/snappyHexMeshDict").read_text()     # default: as the tutorial
     mc.make_case(box_stl(tmp_path), tmp_path / "b", TUT, layers=1, layer_thickness=0.001, merge_layer_faces=False)
@@ -134,6 +150,7 @@ def test_merge_layer_faces_switch(tmp_path):
 
 def test_half_model_refuses_a_body_edited_on_one_side_only(tmp_path):
     # the bounding box is symmetric about Y = 0, but the right-hand body is much smaller than the left-hand one
+    """A half model is refused if the two halves are not mirror images, even when their bounding box is symmetric."""
     import inspect_geometry as ig
     import numpy as np
     left = fx.cube(1.0) * [1.0, 0.2, 0.3] + [-1.0, -0.3, 0.05]          # Y -0.3 .. -0.1

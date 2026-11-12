@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Generate an OpenFOAM v14 external-aero case for a wing STL (metres).
 
+SUPERSEDED by make_case.py, which does the same without being wing-specific. Nothing in the repository
+imports this file; it is kept only as a record of the first wing case generator.
+
 It does NOT write dictionaries from scratch. It copies the OpenFOAM motorBikeSteady
 tutorial (which is known to run on this machine) and edits specific entries, failing
 loudly if an expected piece of text is not found. It also writes a job.json with the
@@ -37,6 +40,7 @@ HEADER_END = "// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 
 
 class CaseError(Exception):
+    """The case cannot be generated: bad inputs, or the template tutorial is not the expected version."""
     pass
 
 
@@ -66,6 +70,7 @@ def frontal_area(tris: np.ndarray, res: float = 0.004) -> float:
 # Text editing helpers (fail loudly)
 # --------------------------------------------------------------------------- #
 def sub_once(text: str, old: str, new: str, what: str) -> str:
+    """Replace old with new, requiring exactly one occurrence, so a changed template is noticed."""
     if text.count(old) != 1:
         raise CaseError(f"Expected exactly one '{old}' in {what}, found {text.count(old)}. "
                         "The tutorial layout is not what this script was written for.")
@@ -73,6 +78,7 @@ def sub_once(text: str, old: str, new: str, what: str) -> str:
 
 
 def regex_once(text: str, pattern: str, new: str, what: str, flags=re.S | re.M) -> str:
+    """Replace exactly one regex match with literal text new; fail on zero or several matches."""
     out, n = re.subn(pattern, lambda m: new, text, count=0, flags=flags)
     if n != 1:
         raise CaseError(f"Expected exactly one match of /{pattern}/ in {what}, found {n}.")
@@ -80,6 +86,7 @@ def regex_once(text: str, pattern: str, new: str, what: str, flags=re.S | re.M) 
 
 
 def foam_header(cls: str, location: str, obj: str) -> str:
+    """FoamFile header for a new OpenFOAM dictionary file of the given class, location and object name."""
     return (
         "FoamFile\n{\n    format      ascii;\n"
         f"    class       {cls};\n    location    \"{location}\";\n    object      {obj};\n}}\n"
@@ -88,6 +95,7 @@ def foam_header(cls: str, location: str, obj: str) -> str:
 
 
 def fmt(x: float) -> str:
+    """Number with 6 significant figures, as written into OpenFOAM files."""
     return f"{x:.6g}"
 
 
@@ -99,6 +107,12 @@ def make_case(stl: Path, case: Path, tutorial: Path, speed: float, base_cell: fl
               wake_level: int, end_time: int, aref: float | None, lref: float | None,
               layers: bool, upstream: float, downstream: float, half_width: float,
               height: float) -> dict:
+    """Build a wing case folder from the motorBikeSteady tutorial and a wing STL in metres; returns the job info.
+
+    The domain extends upstream, downstream, half_width to each side and height above the ground plane (Z = 0).
+    base_cell, the refinement levels and layers control the mesh; aref and lref default to values computed from
+    the STL. Raises CaseError if the STL or tutorial is missing or the case folder already exists.
+    """
     stl, case, tutorial = Path(stl), Path(case), Path(tutorial)
     if not stl.is_file():
         raise CaseError(f"STL not found: {stl}")
@@ -120,6 +134,7 @@ def make_case(stl: Path, case: Path, tutorial: Path, speed: float, base_cell: fl
 
     # Domain, snapped to whole base cells so cells are cubes.
     def snapped(start: float, stop: float):
+        """Round the interval [start, stop] to a whole number of background cells; returns (start, new stop, cells)."""
         n = max(1, round((stop - start) / base_cell))
         return start, start + n * base_cell, n
 
@@ -139,11 +154,13 @@ def make_case(stl: Path, case: Path, tutorial: Path, speed: float, base_cell: fl
     shutil.copy2(stl, case / "constant" / "geometry" / "wing.stl")
 
     def edit(rel: str, fn):
+        """Apply fn(text, name) to one file of the new case and write the result back."""
         p = case / rel
         p.write_text(fn(p.read_text(), rel))
 
     # blockMeshDict: new box, same patch names as the tutorial
     def block_mesh(t, rel):
+        """blockMeshDict edit: domain corners and cell counts."""
         v = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
              (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
         vtxt = "\n".join(f"    ({fmt(a)} {fmt(b)} {fmt(c)})" for a, b, c in v)
@@ -157,6 +174,7 @@ def make_case(stl: Path, case: Path, tutorial: Path, speed: float, base_cell: fl
     wake = (lo[0] - 0.3, lo[1] - 0.4, 0.0, hi[0] + 3.0, hi[1] + 0.4, hi[2] + 0.7)
 
     def snappy(t, rel):
+        """snappyHexMeshDict edit: the wing and refinement boxes, refinement levels and wall-layer settings."""
         t = regex_once(t, r"^geometry\s*\{.*?^\};", f"""geometry
 {{
     wing
@@ -225,6 +243,7 @@ def make_case(stl: Path, case: Path, tutorial: Path, speed: float, base_cell: fl
     k = 0.24 * (speed / 20.0) ** 2
     om = 1.78 * (speed / 20.0)
     def init_cond(t, rel):
+        """initialConditions edit: free-stream velocity and the turbulence inflow values (k, omega)."""
         for name, val in (("flowVelocity", f"({fmt(speed)} 0 0)"), ("turbulentKE", fmt(k)),
                           ("turbulentOmega", fmt(om))):
             t = regex_once(t, rf"^{name}\s+[^;]+;", f"{name:<20} {val};", rel)
@@ -298,12 +317,14 @@ touch {case.name}.foam
 
 
 def sub_once_all(text: str, old: str, new: str, what: str) -> str:
+    """Replace every occurrence of old; fail if there is none."""
     if old not in text:
         raise CaseError(f"'{old}' not found in {what}.")
     return text.replace(old, new)
 
 
 def decompose_count(path: Path) -> int:
+    """Number of processors (numberOfSubdomains) set in the tutorial's decomposeParDict."""
     m = re.search(r"numberOfSubdomains\s+(\d+);", path.read_text())
     if not m:
         raise CaseError("numberOfSubdomains not found in decomposeParDict.")
@@ -311,6 +332,9 @@ def decompose_count(path: Path) -> int:
 
 
 def main(argv=None) -> int:
+    """Command-line entry point: generate a wing case from a metres STL and print the next steps. Returns 0, or 2 on
+    error.
+    """
     p = argparse.ArgumentParser(description="Generate an OpenFOAM v14 wing case from a metres STL.")
     p.add_argument("stl", type=Path, help="wing STL in metres (from inspect_geometry.py --export-stl)")
     p.add_argument("--case", type=Path, required=True, help="new case folder (must not exist)")

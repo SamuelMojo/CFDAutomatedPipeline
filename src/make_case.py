@@ -41,6 +41,7 @@ FOOTER = "// " + "*" * 73 + " //\n"
 
 
 class CaseError(Exception):
+    """The case cannot be generated: bad inputs, or the template tutorial is not the expected version."""
     pass
 
 
@@ -66,6 +67,7 @@ def frontal_area(tris: np.ndarray, res: float = 0.004) -> float:
 
 
 def surface_area(tris: np.ndarray) -> float:
+    """Total area of the triangles (n, 3, 3), in the square of the STL's length unit."""
     return float(0.5 * np.linalg.norm(np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]), axis=1).sum())
 
 
@@ -73,6 +75,7 @@ def surface_area(tris: np.ndarray) -> float:
 # Text editing helpers (fail loudly)
 # --------------------------------------------------------------------------- #
 def sub_once(text: str, old: str, new: str, what: str) -> str:
+    """Replace old with new, requiring exactly one occurrence, so a changed template is noticed."""
     if text.count(old) != 1:
         raise CaseError(f"Expected exactly one '{old}' in {what}, found {text.count(old)}. "
                         "The tutorial layout is not what this script was written for.")
@@ -80,12 +83,14 @@ def sub_once(text: str, old: str, new: str, what: str) -> str:
 
 
 def sub_all(text: str, old: str, new: str, what: str) -> str:
+    """Replace every occurrence of old; fail if there is none."""
     if old not in text:
         raise CaseError(f"'{old}' not found in {what}.")
     return text.replace(old, new)
 
 
 def regex_once(text: str, pattern: str, new: str, what: str, flags=re.S | re.M) -> str:
+    """Replace exactly one regex match with literal text new; fail on zero or several matches."""
     out, n = re.subn(pattern, lambda m: new, text, flags=flags)
     if n != 1:
         raise CaseError(f"Expected exactly one match of /{pattern}/ in {what}, found {n}.")
@@ -93,16 +98,19 @@ def regex_once(text: str, pattern: str, new: str, what: str, flags=re.S | re.M) 
 
 
 def foam_header(cls: str, location: str, obj: str) -> str:
+    """FoamFile header for a new OpenFOAM dictionary file of the given class, location and object name."""
     return ("FoamFile\n{\n    format      ascii;\n"
             f"    class       {cls};\n    location    \"{location}\";\n    object      {obj};\n}}\n"
             f"{HEADER_END}\n\n")
 
 
 def fmt(x: float) -> str:
+    """Number with 6 significant figures, as written into OpenFOAM files."""
     return f"{x:.6g}"
 
 
 def vec(v) -> str:
+    """Vector as an OpenFOAM '(x y z)' string."""
     return "(" + " ".join(fmt(c) for c in v) + ")"
 
 
@@ -119,6 +127,7 @@ def split_xy(n: int) -> tuple[int, int]:
 
 
 def decompose_count(path: Path) -> int:
+    """Number of processors (numberOfSubdomains) set in the tutorial's decomposeParDict."""
     m = re.search(r"numberOfSubdomains\s+(\d+);", path.read_text())
     if not m:
         raise CaseError("numberOfSubdomains not found in decomposeParDict.")
@@ -189,6 +198,7 @@ def use_spalart_allmaras(case: Path, nu_tilda: float, edit) -> None:
         "    div(phi,nuTilda) bounded Gauss upwind;", rel))
 
     def solution(t, rel):
+        """fvSolution edit: add the nuTilda solver block and its relaxation factor (SA replaces omega)."""
         t = regex_once(t, r"^    omega\n    \{", "    nuTilda\n    {\n        solver          smoothSolver;\n"
                        "        smoother        GaussSeidel;\n        tolerance       1e-8;\n        relTol          0.1;\n"
                        "        nSweeps         1;\n    }\n\n    omega\n    {", rel)
@@ -283,10 +293,14 @@ def make_case(stl: Path, case: Path, tutorial: Path, allow_open: bool = False, *
     shutil.copy2(stl, case / "constant" / "geometry" / "body.stl")
 
     def edit(rel: str, fn):
+        """Apply fn(text, name) to one file of the new case and write the result back."""
         p = case / rel
         p.write_text(fn(p.read_text(), rel))
 
     def block_mesh(t, rel):
+        """blockMeshDict edit: domain corners and cell counts; for a half model, the Y = 0 face becomes a symmetry
+        plane.
+        """
         v = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
              (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
         t = regex_once(t, r"^vertices\s*\(.*?^\);",
@@ -302,6 +316,7 @@ def make_case(stl: Path, case: Path, tutorial: Path, allow_open: bool = False, *
     edit("system/blockMeshDict", block_mesh)
 
     def snappy(t, rel):
+        """snappyHexMeshDict edit: the body and refinement boxes, refinement levels and the wall-layer settings."""
         t = regex_once(t, r"^geometry\s*\{.*?^\};", f"""geometry
 {{
     body
@@ -390,6 +405,7 @@ def make_case(stl: Path, case: Path, tutorial: Path, allow_open: bool = False, *
     om = 1.78 * (speed / 20.0)
 
     def init_cond(t, rel):
+        """initialConditions edit: free-stream velocity and the turbulence inflow values (k, omega)."""
         for name, val in (("flowVelocity", f"({fmt(speed)} 0 0)"), ("turbulentKE", fmt(k)),
                           ("turbulentOmega", fmt(om))):
             t = regex_once(t, rf"^{name}\s+[^;]+;", f"{name:<20} {val};", rel)
@@ -484,6 +500,9 @@ touch {case.name}.foam
 
 
 def main(argv=None) -> int:
+    """Command-line entry point: generate a case from a metres STL and report the settings used. Returns 0, or 2 on
+    error.
+    """
     p = argparse.ArgumentParser(description="Generate an OpenFOAM v14 external-aero case from a metres STL.")
     p.add_argument("stl", type=Path, help="body STL in metres (from inspect_geometry.py --export-stl, or clean source)")
     p.add_argument("--case", type=Path, required=True, help="new case folder (must not exist)")

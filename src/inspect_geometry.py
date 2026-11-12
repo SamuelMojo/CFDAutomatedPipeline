@@ -86,6 +86,7 @@ def read_stl(path: Path) -> np.ndarray:
 
 
 def write_stl_binary(path: Path, tris: np.ndarray) -> None:
+    """Write triangles (n, 3, 3) as a binary STL; normals are recomputed from the vertex order."""
     tris = np.asarray(tris, dtype=np.float32)
     n = len(tris)
     rec = np.zeros(n, dtype=STL_DTYPE)
@@ -122,6 +123,7 @@ def write_vtk_segments(path: Path, segments: np.ndarray, solids_on_edge: np.ndar
 # STEP handling (needs CadQuery)
 # --------------------------------------------------------------------------- #
 def _export_solid_stl(shape, stl_path: Path, tol: float, cq) -> None:
+    """Tessellate one CadQuery shape into an STL file, falling back to the exporter API on older CadQuery."""
     try:
         shape.exportStl(str(stl_path), tolerance=tol, angularTolerance=0.1)
     except Exception:
@@ -382,6 +384,7 @@ def analyse_mesh(tris: np.ndarray, weld_tol_rel: float = 1e-5, groups=None) -> d
     tri_comp = np.bincount(face_comp, minlength=ncomp)
 
     def per_comp_edges(mask: np.ndarray) -> np.ndarray:
+        """Count the selected edges in each connected body (the bodies are in 'labels')."""
         if not mask.any():
             return np.zeros(ncomp, dtype=int)
         lab = labels[uedges[mask][:, 0]]
@@ -499,10 +502,12 @@ def compare_cad_volume(cad_volume: float, mesh_volume: float, threshold: float =
 
 
 def _where(centroid) -> str:
+    """Format a centroid as '(x, y, z)' with 4 significant figures, for messages."""
     return "(" + ", ".join(f"{c:.4g}" for c in centroid) + ")"
 
 
 def describe_nonmanifold(groups: list, limit: int = 4) -> str:
+    """Summarise the first few groups of non-manifold edges as text: how many, which solids, and where."""
     parts = []
     for g in groups[:limit]:
         if g["kind"] == "between_solids":
@@ -521,6 +526,7 @@ def evaluate(m: dict, units: str | None, allow_open: bool, step: dict | None,
     checks: list[dict] = []
 
     def add(level: str, code: str, msg: str) -> None:
+        """Record one check result (level, short code, message)."""
         checks.append({"level": level, "code": code, "message": msg})
 
     hard = "WARN" if allow_open else "FAIL"
@@ -652,6 +658,7 @@ def evaluate(m: dict, units: str | None, allow_open: bool, step: dict | None,
 
 
 def overall_status(checks: list[dict]) -> tuple[str, int]:
+    """Reduce the list of checks to (status, exit code): FAIL beats NEEDS_UNITS beats WARN beats PASS."""
     levels = {c["level"] for c in checks}
     if "FAIL" in levels:
         return "FAIL", EXIT_FAIL
@@ -666,6 +673,7 @@ def overall_status(checks: list[dict]) -> tuple[str, int]:
 # Orchestration
 # --------------------------------------------------------------------------- #
 def sha256_of(path: Path) -> str:
+    """SHA-256 of a file, read in 1 MB chunks. Recorded in the report so a result can be traced to its input."""
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
@@ -683,6 +691,19 @@ def inspect(
     export_stl: Path | None = None,
     problem_edges_vtk: Path | None = None,
 ) -> dict:
+    """Run every check on one geometry file and return the full report as a dictionary.
+
+    path: .stl, .step or .stp file.
+    units: units the file is in (m, mm, cm, in). Never guessed silently; without it the status is NEEDS_UNITS.
+    allow_open: downgrade open edges, non-manifold edges and winding problems from FAIL to WARN.
+    allow_contact: for STEP input, only warn about non-manifold edges where separate solids touch.
+    weld_tol_rel: vertex weld tolerance as a fraction of the model size.
+    step_tol_rel: STEP tessellation tolerance as a fraction of the model size.
+    export_stl: if given (and the checks pass and units are known), write a welded STL in metres here.
+    problem_edges_vtk: if given, write the non-manifold edges as VTK segments to view in ParaView.
+
+    Raises GeometryError if the file cannot be read.
+    """
     path = Path(path)
     if not path.is_file():
         raise GeometryError(f"File not found: {path}")
@@ -772,6 +793,7 @@ def inspect(
 
 
 def print_summary(r: dict) -> None:
+    """Print the human-readable report: header, one line per check, and the final RESULT line."""
     g = r["geometry"]
     print(f"Geometry inspection: {r['input']['path']}")
     print(f"  format : {r['input']['format']}   sha256: {r['input']['sha256'][:16]}...")
@@ -791,6 +813,7 @@ def print_summary(r: dict) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Command-line options for the inspector."""
     p = argparse.ArgumentParser(description="Pre-flight check for CFD geometry (STL or STEP).")
     p.add_argument("geometry", type=Path, help="input .stl, .step or .stp file")
     p.add_argument("--units", choices=sorted(UNIT_SCALE_TO_M), help="units the file is in (required to pass)")
@@ -811,6 +834,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point: inspect, print the summary, write <input>.report.json. Returns the exit code."""
     args = build_parser().parse_args(argv)
     try:
         result = inspect(

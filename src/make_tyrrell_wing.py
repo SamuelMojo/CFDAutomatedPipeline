@@ -109,16 +109,19 @@ def smooth_outline(chord: float = CHORD, n: int = 1200) -> np.ndarray:
 
 
 def profile_area(chord: float = CHORD) -> float:
+    """Cross-section area of the wing profile (shoelace formula on the smoothed outline), in m^2 for a chord in m."""
     p = smooth_outline(chord)
     x, z = p[:, 0], p[:, 1]
     return 0.5 * abs(np.dot(x, np.roll(z, -1)) - np.dot(z, np.roll(x, -1)))
 
 
 def expected_volume() -> float:
+    """Expected solid volume: profile area times span, plus the two endplates."""
     return profile_area() * SPAN + 2 * EP_LEN * EP_THICK * EP_HEIGHT
 
 
 def lowest_z(chord: float = CHORD) -> float:
+    """Lowest z coordinate of the profile outline; used to set the ride height."""
     return float(outline(chord)[:, 1].min())
 
 
@@ -148,6 +151,11 @@ def build(h_over_c: float):
 
 
 def check(body, h_over_c: float) -> dict:
+    """Check a built wing against the expected geometry and return the measurements.
+
+    Compares the lowest point (h/c times chord), span, endplate positions and volume with the design values,
+    and tests that there is one valid solid, the right way up. info['problems'] lists anything that is off.
+    """
     s = body.val()
     bb = s.BoundingBox()
     info = {"bbox_min": [bb.xmin, bb.ymin, bb.zmin], "bbox_max": [bb.xmax, bb.ymax, bb.zmax],
@@ -195,10 +203,12 @@ def reference_at(h_over_c: float, transition: str = "fixed") -> tuple[float, flo
 
 
 def tag(h_over_c: float) -> str:
+    """File-name tag for a ride height: h/c 0.224 becomes 'h0224'."""
     return f"h{round(h_over_c * 1000):04d}"
 
 
 def write_reference(h_over_c: float, folder: Path = DATA) -> Path:
+    """Write the measured reference forces for this h/c as a one-row CSV (cd, cl); downforce is negative Cl."""
     cl, cd = reference_at(h_over_c)
     p = folder / f"ref_{tag(h_over_c)}.csv"
     p.write_text(f"cd,cl\n{cd:.4f},{-cl:.4f}\n")         # pipeline sign: downforce is negative Cl
@@ -206,6 +216,7 @@ def write_reference(h_over_c: float, folder: Path = DATA) -> Path:
 
 
 def job_spec(h_over_c: float, model_key: str) -> dict:
+    """The job file (as a dictionary) for one ride height and one turbulence model, with its reference file."""
     t = tag(h_over_c)
     return {"name": f"tyrrell_{t}_{model_key}",
             "notes": f"Validation: Zerihan single-element wing in ground effect, h/c = {h_over_c}, "
@@ -217,6 +228,8 @@ def job_spec(h_over_c: float, model_key: str) -> dict:
 
 def write_jobs(heights=SWEEP_HEIGHTS, models=("sa", "sst"), jobs_dir: Path = ROOT / "job_specs" / "zerihan",
                make_stl=True) -> list[Path]:
+    """Write the reference files, any missing STLs and the job files for every height and model; returns the job paths.
+    """
     jobs_dir.mkdir(parents=True, exist_ok=True)
     out = []
     for h in heights:
@@ -235,6 +248,9 @@ def write_jobs(heights=SWEEP_HEIGHTS, models=("sa", "sst"), jobs_dir: Path = ROO
 
 
 def main(argv=None) -> int:
+    """Command-line entry point: build one wing STL, or with --write-jobs the whole validation set. Returns 0, or non-
+    zero on failure.
+    """
     ap = argparse.ArgumentParser(description="Zerihan single-element wing in ground effect (validation case).")
     ap.add_argument("--h-over-c", type=float, help="ride height / chord")
     ap.add_argument("--out", type=Path, help="STL to write (metres)")

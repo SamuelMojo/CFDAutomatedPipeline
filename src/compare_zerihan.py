@@ -8,7 +8,8 @@ Picks every finished job called tyrrell_h<hhhh>_<model> from the batch reports, 
 downforce) to the thesis' downforce coefficient CL, and reports, per turbulence model:
   * CL and CD at each height vs the measured curve (digitised, about +-0.02 in CL);
   * whether the model finds the downforce PEAK and the drop below it (the stall-in-ground-effect behaviour),
-    which the measurements put at h/c = 0.082 (CL 1.72).
+    which the measurements put at h/c = 0.112 (CL 1.39) with transition fixed (the like-for-like case for RANS)
+    and at h/c = 0.082 (CL 1.72) with transition free.
 Writes zerihan_comparison.md/.png next to the first batch file.
 """
 from __future__ import annotations
@@ -38,6 +39,11 @@ def batch_from_job_dir(d: Path) -> dict:
 
 
 def rows_from_batches(batches: list[dict]) -> list[dict]:
+    """Collect one row per finished tyrrell_h<hhhh>_<model> job from run_batch.py reports.
+
+    Our Cl is negative for downforce; CL here is the thesis convention (positive downforce). If the same height and
+    model appear twice the later one wins. Rows are sorted by model, then height.
+    """
     rows = {}
     for b in batches:
         for j in b.get("jobs", []):                  # other JSON (e.g. *_analysis.json) has no jobs: skipped
@@ -51,6 +57,11 @@ def rows_from_batches(batches: list[dict]) -> list[dict]:
 
 
 def analyse(rows: list[dict]) -> dict:
+    """Add the measured values and errors to each row, and per model find the peak downforce and the mean error.
+
+    CL_error is relative to the transition-fixed measurement. 'drop_below_peak' is True when the lowest height gives
+    less downforce than the peak, i.e. the model reproduces the loss of downforce close to the ground.
+    """
     out = {}
     for model in sorted({r["model"] for r in rows}):
         rs = [r for r in rows if r["model"] == model]
@@ -69,6 +80,9 @@ def analyse(rows: list[dict]) -> dict:
 
 
 def report_md(a: dict) -> str:
+    """Markdown report: one table per turbulence model with ours, measured and error at each height, plus the peak
+    summary.
+    """
     L = ["# Tyrrell wing in ground effect vs Zerihan (2001) wind-tunnel data", "",
          "Reference: balance forces with TRANSITION FIXED (tripped, fully turbulent boundary layer, the like-for-like "
          "case for RANS): downforce peaks at h/c 0.112 (CL 1.39) and then plateaus. With natural (free) transition "
@@ -90,6 +104,9 @@ def report_md(a: dict) -> str:
 
 
 def plot(a: dict, path: Path) -> bool:
+    """Plot downforce and drag against ride height, ours over both measured curves, to path. False if matplotlib is
+    missing.
+    """
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -115,6 +132,9 @@ def plot(a: dict, path: Path) -> bool:
 
 
 def main(argv=None) -> int:
+    """Command-line entry point: compare batch reports or job folders with Zerihan's data and write
+    zerihan_comparison.*. Returns 0, or 2 if no job matches.
+    """
     ap = argparse.ArgumentParser(description="Compare a Tyrrell-wing sweep with Zerihan's wind-tunnel data.")
     ap.add_argument("batches", type=Path, nargs="+",
                     help="batch_<time>.json files from run_batch.py and/or single job folders")

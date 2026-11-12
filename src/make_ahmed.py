@@ -43,6 +43,11 @@ def expected_volume(angle_deg: float) -> float:
 
 
 def build(angle_deg: float):
+    """Build the Ahmed body for a rear slant angle (0 to 40 degrees) as a CadQuery solid in the pipeline frame.
+
+    The body is made with the front at x = 0, then moved so the rear face is at x = 0 and the underside 50 mm up.
+    Raises ValueError for an angle outside the published range and RuntimeError if the cutting wedge is misplaced.
+    """
     import cadquery as cq
     if not 0 <= angle_deg <= 40:
         raise ValueError("Slant angle must be between 0 and 40 degrees (the published range).")
@@ -96,6 +101,9 @@ def check(body, angle_deg: float) -> dict:
 
 
 def main(argv=None) -> int:
+    """Command-line entry point: build, check and write the Ahmed body STL. Returns 0, 1 if the geometry check fails, 2
+    without CadQuery.
+    """
     ap = argparse.ArgumentParser(description="Generate the standard Ahmed body STL (metres).")
     ap.add_argument("--slant", type=float, required=True, help="rear slant angle in degrees (e.g. 25 or 35)")
     ap.add_argument("--out", type=Path, required=True)

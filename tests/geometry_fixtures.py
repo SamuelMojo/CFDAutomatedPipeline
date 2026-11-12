@@ -38,6 +38,7 @@ def cube(size: float = 1.0, origin=(0.0, 0.0, 0.0)) -> np.ndarray:
 
 
 def signed_volume(tris: np.ndarray) -> float:
+    """Volume enclosed by a triangle soup (sum of signed tetrahedra); positive when the normals point outwards."""
     return float(np.einsum("ij,ij->i", tris[:, 0], np.cross(tris[:, 1], tris[:, 2])).sum() / 6.0)
 
 
@@ -75,21 +76,25 @@ def open_copy(tris: np.ndarray, drop: int = 2) -> np.ndarray:
 
 
 def inverted(tris: np.ndarray) -> np.ndarray:
+    """The same triangles with reversed winding, i.e. a solid turned inside out."""
     return tris[:, ::-1, :].copy()
 
 
 def flip_one(tris: np.ndarray, index: int = 0) -> np.ndarray:
+    """Copy of tris with the winding of triangle `index` reversed, giving inconsistent orientation."""
     out = tris.copy()
     out[index] = out[index][::-1]
     return out
 
 
 def with_degenerate(tris: np.ndarray) -> np.ndarray:
+    """tris plus one zero-area triangle."""
     p = tris[0, 0]
     return np.concatenate([tris, np.array([[p, p, p]])])
 
 
 def to_ascii_stl(tris: np.ndarray, name: str = "test") -> str:
+    """Text of an ASCII STL file for the triangles (used to test ASCII reading)."""
     lines = [f"solid {name}"]
     for t in tris:
         lines += ["facet normal 0 0 0", "outer loop"]
@@ -100,6 +105,7 @@ def to_ascii_stl(tris: np.ndarray, name: str = "test") -> str:
 
 
 def write_all(outdir: Path) -> None:
+    """Write the known-good and deliberately broken test STLs into outdir."""
     outdir.mkdir(parents=True, exist_ok=True)
     w, _ = wing()
     files = {

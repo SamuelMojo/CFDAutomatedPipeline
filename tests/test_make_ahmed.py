@@ -13,12 +13,16 @@ import make_ahmed as ma  # noqa: E402
 
 @pytest.mark.parametrize("angle", [25, 35])
 def test_dimensions_and_volume(angle):
+    """The built body passes the generator's own check (bounding box, volume, valid solid) at 25 and 35 degrees."""
     info = ma.check(ma.build(angle), angle)
     assert info["problems"] == []
 
 
 @pytest.mark.parametrize("angle", [25, 35])
 def test_stl_is_clean_and_slanted_at_the_rear(tmp_path, angle):
+    """The STL is one closed manifold body, the rear face is as high as the slant leaves it, and the front reaches roof
+    height.
+    """
     out = tmp_path / f"a{angle}.stl"
     assert ma.main(["--slant", str(angle), "--out", str(out)]) == 0
     r = ig.inspect(out, units="m")

@@ -37,6 +37,7 @@ def ranks(v: np.ndarray) -> np.ndarray:
 
 
 def spearman(a: np.ndarray, b: np.ndarray) -> float:
+    """Spearman rank correlation of a and b: 1 means the same order, -1 the opposite order."""
     ra, rb = ranks(a), ranks(b)
     return float(np.corrcoef(ra, rb)[0, 1])
 
@@ -74,6 +75,8 @@ def analyse(rows: list[dict], noise: float) -> dict:
 
 
 def report_md(a: dict, source: str) -> str:
+    """Markdown report for an analyse() result: per-shape table, ranking, offset and pairs the noise allows us to call.
+    """
     L = [f"# Design sweep analysis ({a['n']} shapes)", "", f"Source: `{source}`", "",
          "| Shape | Reference Cd | Our Cd | Difference | Offset-corrected |", "|---|---|---|---|---|"]
     for s in sorted(a["shapes"], key=lambda s: s["ref"]):
@@ -93,6 +96,9 @@ def report_md(a: dict, source: str) -> str:
 
 
 def plot(a: dict, path: Path) -> bool:
+    """Scatter of our Cd against the reference Cd with the offset line and error bars, saved to path. False if
+    matplotlib is missing.
+    """
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -120,6 +126,10 @@ def plot(a: dict, path: Path) -> bool:
 
 
 def rows_from_batch(batch: dict) -> list[dict]:
+    """Rows for analyse() from a run_batch.py report: finished jobs that have a reference.
+
+    The reference Cd is recovered from our Cd and the batch's relative difference (Cd_vs_ref).
+    """
     rows = []
     for j in batch["jobs"]:
         if j.get("outcome") != "finished" or j.get("Cd") is None or j.get("Cd_vs_ref") is None:
@@ -130,6 +140,9 @@ def rows_from_batch(batch: dict) -> list[dict]:
 
 
 def main(argv=None) -> int:
+    """Command-line entry point: analyse a batch report and write <batch>_analysis.md/.json/.png. Returns 0, or 2 with
+    fewer than three usable jobs.
+    """
     ap = argparse.ArgumentParser(description="Ranking analysis of a design-sweep batch.")
     ap.add_argument("batch", type=Path, help="batch_<time>.json written by run_batch.py")
     ap.add_argument("--noise", type=float, default=0.02,

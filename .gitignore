@@ -18,3 +18,14 @@ test_data/*
 *.mp4
 *.foam
 processor*/
+
+# Terraform: never commit state or real variable files (.terraform.lock.hcl IS committed)
+aws/terraform/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
+
+# The AWS web front end (cfd.samuelojo.tech) stays out of the repo until it is deployed and working.
+# Remove this line to publish it.
+aws/

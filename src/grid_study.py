@@ -28,6 +28,7 @@ __version__ = "0.1.0"
 
 
 def final_cells(case: Path) -> int:
+    """Cell count of the finished mesh: the last 'Layer mesh' or 'Snapped mesh' line in log.snappyHexMesh."""
     log = (case / "log.snappyHexMesh").read_text(errors="replace")
     found = re.findall(r"(?:Layer|Snapped) mesh : cells:(\d+)", log)
     if not found:
@@ -36,6 +37,7 @@ def final_cells(case: Path) -> int:
 
 
 def load(case: Path) -> dict:
+    """Mean Cd and Cl, cell count and gate state of one finished case (from results.json and the mesh log)."""
     r = json.loads((case / "results.json").read_text())
     f = r.get("final") or {}
     if "Cd_mean" not in f:
@@ -93,6 +95,11 @@ def gci(phi: tuple[float, float, float], n: tuple[int, int, int], fs: float = 1.
 
 
 def study(cases: list[Path], reference: Path | None = None) -> dict:
+    """Grid-convergence study from three cases ordered coarse, medium, fine.
+
+    Applies gci() to Cd and Cl. If a reference CSV (columns cd, cl) is given, also reports how far the fine-mesh and
+    the extrapolated values are from it. Raises ValueError unless there are exactly three cases of increasing size.
+    """
     if len(cases) != 3:
         raise ValueError("Give exactly three cases, ordered coarse, medium, fine.")
     runs = [load(Path(c)) for c in cases]
@@ -116,6 +123,7 @@ def study(cases: list[Path], reference: Path | None = None) -> dict:
 
 
 def main(argv=None) -> int:
+    """Command-line entry point: run the study, print a summary and write grid_study.json. Returns 0, or 2 on error."""
     ap = argparse.ArgumentParser(description="Grid-convergence (GCI) study from three cases, coarse to fine.")
     ap.add_argument("cases", nargs=3, type=Path)
     ap.add_argument("--reference", type=Path, help="CSV with cd, cl columns")

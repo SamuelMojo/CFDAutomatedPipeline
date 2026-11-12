@@ -8,6 +8,7 @@ Reads the log files and job.json, and answers:
                  body, as happened in the nose of the first wing run)
   SOLVER_END     did the solver reach the end?
   CONVERGED      have Cd and Cl stopped moving over the last part of the run?
+  UNSTEADY       do the forces swing strongly around their mean? (warning only: use averaged values)
 Optionally compares the final Cd/Cl with a reference CSV (e.g. AhmedML force_mom_i.csv).
 
 Writes <case>/results.json. Exit code 0 = no FAIL, 1 = at least one FAIL, 2 = error.
@@ -32,6 +33,7 @@ __version__ = "0.4.0"
 
 
 def read(path: Path) -> str | None:
+    """Text of a file (undecodable bytes replaced), or None if the file does not exist."""
     return path.read_text(errors="replace") if path.is_file() else None
 
 
@@ -90,6 +92,19 @@ def expected_volumes(case: Path, job: dict | None):
 def check(case: Path, reference: Path | None = None, window_frac: float = 0.2,
           tol_pass: float = 0.01, tol_warn: float = 0.05,
           illegal_frac_warn: float = 1e-4, swing_warn: float = 0.05, skew_frac_warn: float = 1e-5) -> dict:
+    """Run every quality gate on a finished case and return the verdict as a dictionary.
+
+    case: the case folder (needs the log.* files and job.json written by make_case and run_job).
+    reference: optional CSV with cd and cl columns to compare the settled forces with.
+    window_frac: share of the run used as the averaging window for the convergence test.
+    tol_pass, tol_warn: movement of the mean (relative) that still passes / only warns.
+    illegal_frac_warn: share of illegal mesher faces above which the mesh gate fails (below it, a warning).
+    swing_warn: peak-to-peak force swing, as a share of the mean, above which the flow counts as unsteady.
+    skew_frac_warn: share of highly skewed faces that checkMesh may report and still only warn.
+
+    Returns {case, status, gates, final, comparison, mesh, job, tool, tool_version}. status is the worst
+    gate level (PASS, WARN or FAIL).
+    """
     case = Path(case)
     if not case.is_dir():
         raise FileNotFoundError(f"Case folder not found: {case}")
@@ -97,8 +112,10 @@ def check(case: Path, reference: Path | None = None, window_frac: float = 0.2,
     gates: list[dict] = []
 
     def gate(level, code, msg):
+        """Record one gate result; level is PASS, WARN or FAIL."""
         gates.append({"level": level, "code": code, "message": msg})
 
+    # Gate MESH_FINISHED: did the mesher finish, and if not, how bad was it?
     snappy = read(case / "log.snappyHexMesh")
     if snappy is None:
         gate("FAIL", "MESH_FINISHED", "log.snappyHexMesh not found.")
@@ -122,9 +139,11 @@ def check(case: Path, reference: Path | None = None, window_frac: float = 0.2,
                 gate("FAIL", "MESH_FINISHED", txt + ". Too many: fix the mesh settings.")
         else:
             gate("FAIL", "MESH_FINISHED", "snappyHexMesh did not report finishing (crashed or still running?).")
+    # Mesh facts from the mesher log, stored in the results for the record.
     regions = re.findall(r"out of (\d+) regions", snappy or "")
     cells = re.findall(r"(?:Layer|Snapped) mesh : cells:(\d+)", snappy or "")
 
+    # Gate MESH_QUALITY: checkMesh verdict. A handful of skewed faces alone only warns.
     cm = read(case / "log.checkMesh")
     total_volume = None
     if cm is None:
@@ -149,6 +168,7 @@ def check(case: Path, reference: Path | None = None, window_frac: float = 0.2,
         mv = re.search(r"Total volume = ([0-9.eE+-]+)", cm)
         total_volume = float(mv.group(1).rstrip(".")) if mv else None
 
+    # Gate FLUID_VOLUME: mesh volume should equal domain minus body. A leak leaves air inside the body.
     dom, body = expected_volumes(case, job)
     removed_frac = None
     if total_volume is None or dom is None or not body:
@@ -165,6 +185,7 @@ def check(case: Path, reference: Path | None = None, window_frac: float = 0.2,
         else:
             gate("WARN", "FLUID_VOLUME", txt + ": partly. Check the geometry and the mesh around it.")
 
+    # Gates SOLVER_END, CONVERGED and UNSTEADY come from the solver log.
     solver = read(case / "log.foamRun")
     hist = force_history(solver) if solver else {"time": [], "Cd": [], "Cl": [], "Cm": []}
     final = None
@@ -221,6 +242,7 @@ def check(case: Path, reference: Path | None = None, window_frac: float = 0.2,
     elif solver is not None:
         gate("FAIL", "CONVERGED", "No force coefficients found in log.foamRun.")
 
+    # Optional comparison of the settled forces with a reference file (one row of Cd and Cl).
     comparison = None
     if reference and final:
         rows = list(csv.reader(open(reference)))
@@ -234,6 +256,7 @@ def check(case: Path, reference: Path | None = None, window_frac: float = 0.2,
                 comparison[k] = {"ours": ours, "reference": ref[k], "difference": ours - ref[k],
                                  "relative": (ours - ref[k]) / abs(ref[k]) if ref[k] else None}
 
+    # Overall status is the worst gate level.
     levels = {g["level"] for g in gates}
     status = "FAIL" if "FAIL" in levels else "WARN" if "WARN" in levels else "PASS"
     return {"case": str(case), "status": status, "gates": gates, "final": final,
@@ -246,6 +269,7 @@ def check(case: Path, reference: Path | None = None, window_frac: float = 0.2,
 
 
 def main(argv=None) -> int:
+    """Command-line entry point: check one case, print the gates, write results.json. Returns the exit code."""
     p = argparse.ArgumentParser(description="Quality gates for a finished OpenFOAM case.")
     p.add_argument("case", type=Path)
     p.add_argument("--reference", type=Path, help="CSV with cd, cl columns to compare against")

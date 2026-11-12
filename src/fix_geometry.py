@@ -78,6 +78,7 @@ def place_in_tunnel(tris: np.ndarray, R: np.ndarray, p0: np.ndarray) -> np.ndarr
 
 
 def load_solids(path: Path):
+    """All solids in a STEP file as CadQuery objects (CadQuery is imported here so the module loads without it)."""
     import cadquery as cq
     wp = cq.importers.importStep(str(path))
     return [s for o in wp.vals() for s in (o.Solids() if hasattr(o, "Solids") else [o])]
@@ -103,6 +104,18 @@ def fuse(solids, tol: float):
 def fix_shape(path: Path, out: Path, min_volume_frac: float = 1e-6, tols=(0.01, 0.05, 0.2),
               scale: float | None = None, stl_tol_rel: float = 1e-4, ground_box: Path | None = None,
               angular: float = 0.1) -> dict:
+    """Fuse the solids of a STEP assembly into one clean solid and write it as an STL in metres.
+
+    path, out: input STEP and output STL (a JSON report is written next to it by main).
+    min_volume_frac: solids smaller than this fraction of the largest are dropped as debris (bolts, slivers).
+    tols: fuzzy-fuse tolerances to try in turn, in mm; stops at the first that gives one valid solid.
+    scale: factor from file units to metres (default 0.001, because OpenCascade reads STEP in mm).
+    stl_tol_rel, angular: STL chord tolerance (relative to the part size) and angular tolerance in radians.
+    ground_box: optional CFD-box STEP from the same assembly; puts the part in the tunnel frame (ground Z = 0,
+        flow +X) and records the rake and lowest point.
+
+    Returns the report dictionary; status is PASS, WARN (problems listed) or ERROR (no fuse succeeded).
+    """
     solids = load_solids(path)
     vols = [s.Volume() for s in solids]
     total = sum(vols)
@@ -161,6 +174,8 @@ def fix_shape(path: Path, out: Path, min_volume_frac: float = 1e-6, tols=(0.01, 
 
 
 def main(argv=None) -> int:
+    """Command-line entry point: fix one STEP file, print the attempts and result. Returns 0, 1 or 2 (see module doc).
+    """
     ap = argparse.ArgumentParser(description="Fuse a multi-part STEP assembly into one clean solid (STL, metres).")
     ap.add_argument("step", type=Path)
     ap.add_argument("--out", type=Path, help="output STL (default: <input>_fixed.stl)")
