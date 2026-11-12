@@ -24,7 +24,7 @@ geometry (STL/STEP)
   1. inspect     closed surface? units? exports a clean STL in metres
   2. case        builds an OpenFOAM v14 case (half model, ground, refinement boxes, force coefficients)
   3. mesh        snappyHexMesh in parallel
-  4. mesh gates  stop if the mesh leaked, failed checkMesh or has too many bad faces
+  4. mesh gates  stop if the mesh leaked, failed checkMesh, has too many bad faces or is too coarse for the part
   5. solve       runs in blocks; stops as soon as the mean forces settle, never before min / after max iterations
   6. finish      results.json + summary.md (forces, gate results, stage timings)
 ```
@@ -35,6 +35,7 @@ The checks are the point. A pipeline that always produces a number is dangerous,
 |---|---|
 | Geometry inspection | open or non-manifold surfaces, flipped faces, unit mistakes, touching solids |
 | `FLUID_VOLUME` | air left inside the body (a leaked mesh that otherwise "runs fine") |
+| `RESOLUTION` | a mesh too coarse to represent the part (surface cells along its length and thickness, across the ground gap, and the total cell count). Checked from the job file before meshing starts, then again on the real mesh. A very coarse mesh stops the job; a marginal one is a warning |
 | `MESH_QUALITY` | checkMesh failures; isolated skewed faces are a warning, not a failure |
 | `CONVERGED` | forces still drifting at the end of the run; reports mean and swing |
 | Half-model symmetry | a body edited on one side only (refused above 5% surface-area difference) |
@@ -70,6 +71,10 @@ Each job gets its own folder in `$FOAM_RUN/jobs/<name>_<timestamp>/` with `job.j
 A job file is JSON: geometry path and units, a preset (`quick`, `standard`, `fine`), optional case overrides
 (speed, ground, reference area, processors, turbulence model, mesh levels, half model), solve limits, and an
 optional reference CSV. See `job_specs/` for examples, including a ride-height sweep and design-variant tests.
+
+If the `RESOLUTION` gate stops a job because the part is small for the chosen preset, the usual fixes are a finer
+preset or checking the units. Set `"allow_coarse": true` in the job file only for a deliberate smoke test: the
+gate then reports a warning instead of stopping, and the forces should not be treated as a result.
 
 ## Tools
 
@@ -202,8 +207,19 @@ outside the development machine. CI runs the core tests on every push (see `.git
 A private web front end for the pipeline lives in [`aws/`](aws): Terraform for AWS, a small Python API, a worker that
 runs the jobs on a home PC, and the web pages. Approved people sign in at https://cfd.samuelojo.tech, upload up to
 five STEP wings, watch the runs during the day and read the results. The simulations run on the owner's own computer,
-not in the cloud. The sign-in stage is live; uploads, the queue, the worker and the results page are written and
-tested but not yet deployed.
+not in the cloud.
+
+The whole chain is deployed and has run end to end (12 Nov 2026): sign-in, upload, the queue, the worker on the PC
+that has OpenFOAM, live progress, and a results page with the numbers, quality checks, pictures and video. The worker
+is a program on the home PC that asks AWS for work every 15 seconds and makes outgoing connections only, so runs start
+only while it is open.
+
+![The results page for the first run through the website: a 737 mm wing, Cd 0.5218, Cl -5.4557, a mesh-resolution warning, and the pictures](docs/images/website_first_run.png)
+
+*A rough test, to show the pipeline working from upload to results page (12 Nov 2026): a 737 mm wing at the quick
+preset, 43,199 cells, 53 seconds. Take the numbers with a pinch of salt. The amber warning in the checks is the
+pipeline's own resolution gate saying the mesh is too coarse for the part (about 2 cells across the wing's thickness),
+so these forces are a first look, not a result. The site now calls this preset Preview and says so above the numbers.*
 
 **[How it is built and deployed: docs/website-deployment.md](docs/website-deployment.md)**
 

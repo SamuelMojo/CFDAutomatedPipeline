@@ -35,7 +35,10 @@ Nothing connects *into* your PC. The worker asks AWS "is there a job?" every 15 
    temporary password and they choose their own on first sign-in.
 2. **Start new runs**: choose 1 to 5 STEP files (or drag them in). For each wing: a name, the
    units it was drawn in, and an optional half-domain mesh. For the whole upload: turbulence
-   model (Spalart-Allmaras or k-omega SST), quality (quick or standard), speed and ground.
+   model (Spalart-Allmaras or k-omega SST), quality (Preview or Standard), speed and ground.
+   Standard is the default. Preview is a coarse, fast first look, so a Preview run (and any run
+   whose mesh the RESOLUTION check finds too coarse) carries a plain-words caution above its
+   numbers. In the code and the API, Preview is still the preset `quick`.
    FluidX3D is shown as "coming later".
 3. STEP files are **zipped in the browser** before upload (a ready-made zip with exactly one
    STEP file is also accepted). Each wing becomes its own run.
@@ -205,4 +208,5 @@ S3 behaviour, and the worker driving the real OpenFOAM and ParaView. Do one real
 | Run stays "Queued" | The worker is not running, or it cannot reach AWS: `python aws/worker/worker.py --check` |
 | No alert emails | The SNS confirmation link was not clicked, or the email went to junk |
 | `--check` fails on ParaView | Set `pvbatch` in `~/.cfd-worker/worker.json` to the Windows path as seen from WSL |
-| A run "failed" at the pictures step | The numbers are saved; look at `render.log` in that run's folder under `$FOAM_RUN/web-jobs` |
+| A run "failed" at the pictures step | The numbers are saved. The site says how many pictures were drawn out of how many and names the scenes that failed; the reason is in `render.log` in that run's folder under `$FOAM_RUN/web-jobs` |
+| A run "stopped by a quality check" with a message about the mesh being too coarse | The part is small for the quality chosen. Check the units, use Standard quality, or use a larger model |
