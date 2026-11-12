@@ -142,10 +142,16 @@ wing and the wing surface coloured by pressure.*
 
 The PERRINN wing was also run in [FluidX3D](https://github.com/ProjectPhysX/FluidX3D), a GPU lattice Boltzmann
 solver, at the same ride height and speed. It makes far better pictures and runs on one consumer GPU, but on this
-wing it gave 81% less downforce than the pipeline (Cl -0.218 against -1.134) with drag within 5% (Cd 0.224 against
-0.212). Its uniform cells (6.1 mm on a 10 GB GPU) close the slot gaps between the flaps, and it has no wall model. The
-setup changes needed for a fair comparison, the full numbers and the reasons are in
-[comparison/README.md](comparison/README.md).
+wing it gave 77-81% less downforce than the pipeline (Cl -0.218 on the full wing and -0.263 on the half wing, against
+-1.134). Its drag was 5% high on the full wing (Cd 0.224 against 0.212) but 70% high on a finer half-wing run (0.361),
+so the first agreement was a coincidence. Its uniform cells (4.8-6.1 mm on a 10 GB GPU) close the slot gaps between
+the flaps, and it has no wall model. The changes made to FluidX3D's `setup.cpp` for the comparison (with the exact
+patch), the full numbers and the reasons are in [comparison/README.md](comparison/README.md).
+
+![The whole PERRINN car in FluidX3D](comparison/fluidx3d_full_car.jpg)
+
+*The whole PERRINN car in FluidX3D: vortex structures coloured by velocity over a moving ground. A picture only; no
+forces were taken from the car.*
 
 ### What it cannot do yet
 
@@ -153,6 +159,21 @@ setup changes needed for a fair comparison, the full numbers and the reasons are
   solids), but only on the three geometries above.
 - Steady RANS only. Near the ground at about 45 mm the flow was unsteady and the result is a mean with a swing.
 - The geometry is not included (see below), and the OpenFOAM-dependent tests are not run in CI yet.
+
+### Planned
+
+- **A DDES run (detached-eddy simulation) in OpenFOAM.** Steady RANS averages away an unsteady wake, and two results
+  point at that. The Ahmed-body drag sits 11-15% below the AhmedML reference, which was computed with DDES, and the
+  PERRINN wing at 45 mm kept swinging. OpenFOAM v14 has `SpalartAllmarasDDES` (and `SpalartAllmarasIDDES` and
+  `kOmegaSSTDES`), selected with `simulationType LES` and a `model` entry in `momentumTransport`. The first run would be
+  the standard Ahmed body (AhmedML run 1), where a reference exists. If its drag moves clearly closer to the reference
+  than the steady runs, the gap was down to steady against unsteady modelling; if not, it was something else. The PERRINN
+  wing at 45 mm comes next. It needs work the pipeline does not have yet: a transient case with a small time step, the
+  converged RANS field as the start, a finer mesh in the wake than the RANS meshes have, averaging over several flow
+  passes, and a time-averaged convergence check in place of the steady one. The cost has not been measured; expect it to
+  be many times the 60-90 minutes of a steady job.
+- FluidX3D on the Zerihan single-element wing, where measurements exist, to separate the method's limits from the
+  too-coarse slots on a multi-element wing.
 
 ## Run time and processor count
 
@@ -175,6 +196,18 @@ python -m pytest -q
 The core tests (about 70) use synthetic geometry and synthetic logs and need only numpy. Tests that need CadQuery
 or the OpenFOAM tutorials skip themselves when those are missing, so a result of "passed, N skipped" is normal
 outside the development machine. CI runs the core tests on every push (see `.github/workflows/ci.yml`).
+
+## Website
+
+A private web front end for the pipeline lives in [`aws/`](aws): Terraform for AWS, a small Python API, a worker that
+runs the jobs on a home PC, and the web pages. Approved people sign in at https://cfd.samuelojo.tech, upload up to
+five STEP wings, watch the runs during the day and read the results. The simulations run on the owner's own computer,
+not in the cloud. The sign-in stage is live; uploads, the queue, the worker and the results page are written and
+tested but not yet deployed.
+
+**[How it is built and deployed: docs/website-deployment.md](docs/website-deployment.md)**
+
+The website has its own tests (`python -m pytest aws/tests`); they are not run in CI yet.
 
 ## Data and licences
 

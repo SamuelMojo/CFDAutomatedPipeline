@@ -19,13 +19,12 @@ test_data/*
 *.foam
 processor*/
 
-# Terraform: never commit state or real variable files (.terraform.lock.hcl IS committed)
+# Terraform: never commit state, saved plans, real variable files or the zipped Lambda code
+# (.terraform.lock.hcl and terraform.tfvars.example ARE committed)
 aws/terraform/.terraform/
+aws/terraform/.build/
 *.tfstate
 *.tfstate.*
 *.tfvars
+*.tfplan
 crash.log
-
-# The AWS web front end (cfd.samuelojo.tech) stays out of the repo until it is deployed and working.
-# Remove this line to publish it.
-aws/

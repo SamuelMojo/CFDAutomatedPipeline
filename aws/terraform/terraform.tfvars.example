@@ -1,0 +1,14 @@
+# Copy this file to terraform.tfvars (which git ignores) and edit it.
+# Terraform reads terraform.tfvars on its own; this example file is never read.
+
+# Where access requests and every alert are emailed. Required.
+owner_email = "you@example.com"
+
+# Everything below is optional; the values shown are the defaults. See variables.tf.
+# region              = "eu-west-2"
+# max_upload_mb       = 100     # largest zip a person may upload
+# max_step_mb         = 100     # largest STEP file once unzipped
+# max_active_jobs     = 10      # unfinished runs per person
+# max_jobs_per_day    = 20      # new runs per person in 24 hours
+# uploads_expire_days = 14
+# results_expire_days = 90

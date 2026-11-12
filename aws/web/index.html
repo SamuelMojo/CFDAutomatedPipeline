@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>CFD Pipeline</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="card" id="card">
+    <h1>CFD Pipeline</h1>
+    <p id="message" class="message" role="status" aria-live="polite" hidden></p>
+
+    <section id="view-signin">
+      <h2>Sign in</h2>
+      <form id="form-signin" novalidate>
+        <label for="signin-email">Email</label>
+        <input id="signin-email" type="email" autocomplete="username" required>
+        <label for="signin-password">Password</label>
+        <input id="signin-password" type="password" autocomplete="current-password"
+               autocapitalize="off" spellcheck="false" required>
+        <label class="show-pw"><input type="checkbox" class="show-password"> Show password</label>
+        <button type="submit">Sign in</button>
+      </form>
+      <p class="links"><button type="button" class="link" id="go-forgot">Forgot password?</button></p>
+      <p class="hint">Accounts are created by invitation.
+        <button type="button" class="link" id="go-access">Request access</button></p>
+    </section>
+
+    <section id="view-newpw" hidden>
+      <h2>Choose your password</h2>
+      <p class="hint">This is your first sign-in. Replace the temporary password with one only you know.</p>
+      <form id="form-newpw" novalidate>
+        <label for="newpw-1">New password</label>
+        <input id="newpw-1" type="password" autocomplete="new-password"
+               autocapitalize="off" spellcheck="false" required>
+        <label for="newpw-2">Repeat new password</label>
+        <input id="newpw-2" type="password" autocomplete="new-password"
+               autocapitalize="off" spellcheck="false" required>
+        <label class="show-pw"><input type="checkbox" class="show-password"> Show passwords</label>
+        <p class="hint">At least 12 characters with an upper-case letter, a lower-case letter, a number and a symbol.</p>
+        <button type="submit">Save password and continue</button>
+      </form>
+    </section>
+
+    <section id="view-mfa" hidden>
+      <h2>Two-factor code</h2>
+      <form id="form-mfa" novalidate>
+        <label for="mfa-code">Code from your authenticator app</label>
+        <input id="mfa-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+        <button type="submit">Verify</button>
+      </form>
+    </section>
+
+    <section id="view-forgot" hidden>
+      <h2>Reset password</h2>
+      <form id="form-forgot" novalidate>
+        <label for="forgot-email">Email</label>
+        <input id="forgot-email" type="email" autocomplete="username" required>
+        <button type="submit">Email me a code</button>
+      </form>
+      <p class="links"><button type="button" class="link" id="forgot-back">Back to sign in</button></p>
+    </section>
+
+    <section id="view-reset" hidden>
+      <h2>Enter your code</h2>
+      <form id="form-reset" novalidate>
+        <label for="reset-code">Code from the email</label>
+        <input id="reset-code" type="text" inputmode="numeric" autocomplete="one-time-code" required>
+        <label for="reset-1">New password</label>
+        <input id="reset-1" type="password" autocomplete="new-password"
+               autocapitalize="off" spellcheck="false" required>
+        <label for="reset-2">Repeat new password</label>
+        <input id="reset-2" type="password" autocomplete="new-password"
+               autocapitalize="off" spellcheck="false" required>
+        <label class="show-pw"><input type="checkbox" class="show-password"> Show passwords</label>
+        <button type="submit">Set new password</button>
+      </form>
+    </section>
+
+    <section id="view-access" hidden>
+      <h2>Request access</h2>
+      <p class="hint">Accounts are created by hand. Tell the owner who you are; if the request is approved you
+        will get an email with a temporary password.</p>
+      <form id="form-access" novalidate>
+        <label for="access-name">Your name</label>
+        <input id="access-name" type="text" autocomplete="name" maxlength="100" required>
+        <label for="access-email">Email</label>
+        <input id="access-email" type="email" autocomplete="email" maxlength="254" required>
+        <label for="access-org">Team or organisation (optional)</label>
+        <input id="access-org" type="text" autocomplete="organization" maxlength="100">
+        <label for="access-message">What would you like to use it for? (optional)</label>
+        <textarea id="access-message" rows="3" maxlength="1000"></textarea>
+        <div class="trap" aria-hidden="true">
+          <label for="access-extra">Leave this field empty</label>
+          <input id="access-extra" type="text" tabindex="-1" autocomplete="off">
+        </div>
+        <button type="submit">Send request</button>
+      </form>
+      <p class="links"><button type="button" class="link" id="access-back">Back to sign in</button></p>
+    </section>
+
+    <section id="view-app" hidden>
+      <div class="app-head">
+        <p>Signed in as <strong id="app-email"></strong></p>
+        <button type="button" id="signout" class="secondary small">Sign out</button>
+      </div>
+      <p id="worker-banner" class="banner" role="status" hidden></p>
+
+      <h2>Start new runs</h2>
+      <form id="form-runs" novalidate>
+        <label for="run-files">STEP files: up to <span id="limit-files">5</span> wings at once</label>
+        <input id="run-files" type="file" multiple accept=".step,.stp,.zip">
+        <p class="hint">Each file becomes its own run. STEP files are zipped in your browser before they are
+          uploaded; a ready-made .zip is accepted if it holds exactly one STEP file. The model should have the
+          air flowing along +X, the ground at Z = 0 and up as +Z.</p>
+        <ul id="wing-list" class="wings"></ul>
+
+        <fieldset id="batch-settings">
+          <legend>Settings for every wing in this upload</legend>
+          <div class="grid">
+            <div>
+              <label for="set-solver">Turbulence model</label>
+              <select id="set-solver">
+                <option value="SA" selected>Spalart-Allmaras</option>
+                <option value="SST">k-omega SST</option>
+                <option value="FLUIDX3D" disabled>FluidX3D (GPU solver): coming later</option>
+              </select>
+            </div>
+            <div>
+              <label for="set-preset">Quality</label>
+              <select id="set-preset">
+                <option value="quick" selected>Quick</option>
+                <option value="standard">Standard</option>
+              </select>
+            </div>
+            <div>
+              <label for="set-speed">Speed (m/s)</label>
+              <input id="set-speed" type="number" inputmode="decimal" min="5" max="100" step="any" value="20">
+            </div>
+            <div>
+              <label for="set-ground">Ground</label>
+              <select id="set-ground">
+                <option value="moving" selected>Moving with the air</option>
+                <option value="fixed">Fixed floor</option>
+              </select>
+            </div>
+          </div>
+          <p class="hint">Quick uses a coarse mesh without a boundary layer: a rough first look. Standard uses a
+            finer mesh with a boundary layer and more iterations, so it takes longer.</p>
+        </fieldset>
+
+        <button type="submit" id="runs-submit">Upload and queue</button>
+        <progress id="upload-progress" max="1" value="0" hidden></progress>
+        <p id="upload-status" class="status-line" role="status" aria-live="polite"></p>
+      </form>
+
+      <div class="section-head">
+        <h2>Your runs</h2>
+        <button type="button" id="refresh" class="secondary small">Refresh</button>
+      </div>
+      <p id="runs-note" class="hint"></p>
+      <ul id="runs" class="runs"></ul>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="zip.js"></script>
+  <script src="jobs.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
