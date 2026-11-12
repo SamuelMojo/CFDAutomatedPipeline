@@ -1,0 +1,39 @@
+{
+  "name": "perrinn_fw_bench_p08",
+  "notes": "Core-count benchmark: the PERRINN baseline (4 elements, SA, layered half wing, 85.6 mm) on 8 processors, a fixed 300 iterations so the solve time per iteration can be compared. Timing only: use perrinn_fw_sa_half for forces. snappyHexMesh builds a slightly different mesh for each decomposition, so the cell counts differ a little.",
+  "geometry": "../../test_data/perrinn/perrinn_front_wing.stl",
+  "units": "m",
+  "allow_open": true,
+  "preset": "standard",
+  "case": {
+    "speed": 50,
+    "ground": "moving",
+    "aref": 1,
+    "lref": 0.737,
+    "processors": 8,
+    "turbulence_model": "SpalartAllmaras",
+    "half_model": true,
+    "base_cell": 0.1,
+    "surface_level": [
+      5,
+      7
+    ],
+    "feature_level": 7,
+    "near_level": 4,
+    "wake_level": 3,
+    "layers": 1,
+    "layer_thickness": 0.0004,
+    "upstream": 3,
+    "downstream": 6,
+    "half_width": 2.5,
+    "height": 2.5,
+    "merge_layer_faces": false
+  },
+  "solve": {
+    "min_iterations": 300,
+    "max_iterations": 300,
+    "block": 300,
+    "tolerance": 0.005,
+    "average_iterations": 0
+  }
+}

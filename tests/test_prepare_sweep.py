@@ -9,6 +9,7 @@ import prepare_sweep as ps  # noqa: E402
 
 
 def test_choose_spreads_and_adds_close_pair():
+    """The picks span the full drag range and include one pair about a single step apart."""
     cands = {i: 0.20 + 0.001 * i for i in range(1, 41)}
     picks = ps.choose(cands, 6)
     assert len(picks) == 6 and len(set(picks)) == 6
@@ -19,7 +20,9 @@ def test_choose_spreads_and_adds_close_pair():
 
 
 def test_main_writes_valid_job_files(tmp_path):
+    """With a fake downloader, main() writes one valid job file per shape plus the STL and reference files."""
     def fake(url):
+        """Fake downloader: a force CSV whose Cd depends on the run number, or a minimal STL."""
         run = int(url.split("run_")[1].split("/")[0])
         if url.endswith(".csv"):
             return f"cd, cl\n{0.2 + run / 1000:.6f}, -0.1\n".encode()

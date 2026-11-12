@@ -29,12 +29,14 @@ CASE = {"speed": 40, "ground": "fixed", "aref": 0.112, "lref": 1.044, "processor
 
 
 def fetch(url: str, timeout: float = 60) -> bytes:
+    """Download a URL and return its bytes; raises on an HTTP or network error."""
     req = urllib.request.Request(url, headers={"User-Agent": "cfd-pipeline-prepare-sweep"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
 
 
 def parse_forces(data: bytes) -> dict:
+    """Parse an AhmedML force_mom CSV (header row and one value row) into {lower-case column: float}."""
     rows = list(csv.reader(io.StringIO(data.decode())))
     return dict(zip([h.strip().lower() for h in rows[0]], [float(v) for v in rows[1]]))
 
@@ -56,6 +58,7 @@ def choose(cands: dict[int, float], n: int) -> list[int]:
 
 
 def job_spec(run: int, base: Path) -> dict:
+    """The job file (as a dictionary) for one AhmedML shape; paths are relative to the job file's folder."""
     rel = Path("..") / ".." / "test_data" / "ahmed_sweep" / f"run_{run}"
     return {"name": f"ahmedml_{run}",
             "notes": f"Phase 3 design sweep: AhmedML run_{run}, standard preset, identical settings for every shape.",
@@ -64,6 +67,10 @@ def job_spec(run: int, base: Path) -> dict:
 
 
 def main(argv=None, fetcher=fetch) -> int:
+    """Command-line entry point: download reference forces, choose shapes, download their STLs and write job files.
+
+    fetcher is the download function; tests pass a fake so nothing touches the network. Returns 0, or 2 on error.
+    """
     ap = argparse.ArgumentParser(description="Choose and download AhmedML shapes for a design sweep.")
     ap.add_argument("--n", type=int, default=6, help="number of shapes (default 6, including the close pair)")
     ap.add_argument("--candidates", type=int, nargs="+",

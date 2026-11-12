@@ -21,6 +21,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_profile_matches_the_thesis():
+    """The digitised profile has 44 points per side, the thesis trailing-edge thickness, lowest point and incidence."""
     suc, pre = tw.load_profile()
     assert len(suc) == len(pre) == 44
     te = (pre[-1, 1] - suc[-1, 1])                      # trailing edge thickness 0.007c (1.65 mm)
@@ -32,6 +33,9 @@ def test_profile_matches_the_thesis():
 
 
 def test_smooth_outline_passes_through_the_thesis_points():
+    """The smoothed outline passes within 0.025 mm of every digitised point, with no degenerate segments, and keeps the
+    area.
+    """
     s, q = tw.smooth_outline(), tw.outline()
     d = np.array([np.hypot(*(s - x).T).min() for x in q])
     assert d.max() < 2.5e-5                               # every measured point is on the outline (0.025 mm)
@@ -42,6 +46,9 @@ def test_smooth_outline_passes_through_the_thesis_points():
 
 
 def test_reference_interpolation_and_sign(tmp_path):
+    """Measured values interpolate with the peak where the thesis puts it, out-of-range heights are refused, and the
+    reference file uses the pipeline's sign (downforce negative).
+    """
     cl, cd = tw.reference_at(0.082, "free")
     assert cl == pytest.approx(1.72) and cd > 0
     assert tw.reference_at(0.134, "free")[0] < 1.72      # downforce falls above and below the peak
@@ -56,6 +63,7 @@ def test_reference_interpolation_and_sign(tmp_path):
 
 
 def test_job_files_are_valid(tmp_path, monkeypatch):
+    """Generated job files use Spalart-Allmaras and a moving ground, and are accepted by the job runner."""
     monkeypatch.setattr(tw, "DATA", tmp_path)
     jobs = tw.write_jobs(heights=(0.224, 0.090), jobs_dir=tmp_path / "jobs", make_stl=False)
     assert len(jobs) == 4
@@ -70,6 +78,9 @@ def test_job_files_are_valid(tmp_path, monkeypatch):
 
 
 def test_comparison_finds_peak_and_drop(tmp_path):
+    """A synthetic sweep that follows the measurements has zero error and shows the peak and the drop; other jobs in the
+    batch are ignored.
+    """
     ref = tw.reference_forces()
     jobs = []
     for h in (0.224, 0.134, 0.112, 0.060):
@@ -86,6 +97,7 @@ def test_comparison_finds_peak_and_drop(tmp_path):
 
 
 def test_geometry_is_one_clean_solid(tmp_path):
+    """The wing at h/c 0.224 is one clean closed solid with its lowest point at the right height (needs CadQuery)."""
     pytest.importorskip("cadquery")
     import inspect_geometry as ig
     info = tw.check(tw.build(0.224), 0.224)
@@ -100,6 +112,7 @@ def test_geometry_is_one_clean_solid(tmp_path):
 
 
 def test_comparison_reads_single_job_folders(tmp_path):
+    """A job folder and a batch report can be mixed, and JSON that is not a batch is ignored."""
     d = tmp_path / "tyrrell_h0224_sa_20261104-151512"; d.mkdir()
     (d / "results.json").write_text(json.dumps({"status": "WARN", "final": {"Cd_mean": 0.0548, "Cl_mean": -1.1155}}))
     b = tmp_path / "batch_y.json"

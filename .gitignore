@@ -18,3 +18,13 @@ test_data/*
 *.mp4
 *.foam
 processor*/
+
+# Terraform: never commit state, saved plans, real variable files or the zipped Lambda code
+# (.terraform.lock.hcl and terraform.tfvars.example ARE committed)
+aws/terraform/.terraform/
+aws/terraform/.build/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfplan
+crash.log

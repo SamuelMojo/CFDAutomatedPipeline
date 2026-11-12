@@ -5,7 +5,7 @@ Run it with ParaView's batch interpreter (pvbatch), NOT plain python:
 
     pvbatch src/render_flow.py --case <job>/case/<name>.foam --out images/flow/perrinn_h856
 
-Scenes (--scenes, default all except the slow ones are all on):
+Scenes (--scenes, a comma list; the default is all of them):
     hero    three-quarter view, graphite wing, glowing streamlines coloured by speed
     side    side-on slice through the wing, speed colours: the "2D" look
     wake    three cross-sections behind the wing: the vortices
@@ -89,6 +89,7 @@ def seed_levels(zmax: float, count: int) -> list[float]:
 # ParaView helpers
 # --------------------------------------------------------------------------- #
 def log(msg: str) -> None:
+    """Print a time-stamped progress line, flushed so it shows straight away under pvbatch."""
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
@@ -102,6 +103,7 @@ def trynames(proxy, **props) -> None:
 
 
 def make_view(size):
+    """Create the render view: dark gradient background, anti-aliasing, no orientation axes."""
     v = pv.CreateView("RenderView")
     v.ViewSize = list(size)
     trynames(v, OrientationAxesVisibility=0, UseFXAA=1)
@@ -121,6 +123,11 @@ def make_view(size):
 
 
 def color_map(array: str, preset: str, lo: float, hi: float, invert: bool = False):
+    """Colour table for a point array, scaled to [lo, hi] (invert reverses it); returns the lookup table.
+
+    Preset names differ between ParaView versions, so related presets are tried in turn and a picture never fails
+    over a colour map.
+    """
     lut = pv.GetColorTransferFunction(array)
     # Preset names differ between ParaView versions, so try the wanted one, then close relatives,
     # then Turbo (which this ParaView has), and never fail a picture over a colour map.
@@ -155,6 +162,7 @@ def _spans_both_sides(proxy) -> bool:
 
 
 def _reflect_class():
+    """The ParaView reflection filter class under whichever name this version uses, or None if there is none."""
     for name in ("Reflect", "ReflectionFilter", "ReflectFilter"):
         cls = getattr(pv, name, None)
         if cls is not None:
@@ -208,6 +216,8 @@ def mirror(src, half: bool):
 
 
 def set_camera(view, focal, distance, az, el, up=(0, 0, 1), angle=30):
+    """Perspective camera at the given distance, azimuth and elevation from the focal point (z up unless up is given).
+    """
     view.CameraParallelProjection = 0
     view.CameraViewAngle = angle
     view.CameraFocalPoint = list(focal)
@@ -216,6 +226,7 @@ def set_camera(view, focal, distance, az, el, up=(0, 0, 1), angle=30):
 
 
 def caption(view, text: str, size: int):
+    """Show small text in the lower-left corner; returns the text source, or None if text is empty."""
     if not text:
         return None
     t = pv.Text(Text=text)
@@ -225,6 +236,7 @@ def caption(view, text: str, size: int):
 
 
 def save(view, path: Path, size) -> None:
+    """Render the view and save a screenshot of the given size to path."""
     pv.Render(view)
     pv.SaveScreenshot(str(path), view, ImageResolution=list(size))
     log(f"  wrote {path.name}")
@@ -242,7 +254,14 @@ def available(proxy, prop: str):
 
 
 class Case:
+    """A loaded OpenFOAM case: its region and array names, the last time step, and whether to use mean or instantaneous
+    fields.
+    """
     def __init__(self, foam: Path, use_mean: bool):
+        """Open the .foam file once to read region names, arrays and times.
+
+        use_mean selects UMean and pMean when the case has them, otherwise U and p.
+        """
         self.foam = foam
         probe = pv.OpenFOAMReader(registrationName="probe", FileName=str(foam))
         probe.UpdatePipelineInformation()
@@ -257,6 +276,8 @@ class Case:
         pv.Delete(probe)
 
     def reader(self, names, name):
+        """A new reader for the given mesh regions at the last time step, loading only the velocity and pressure arrays.
+        """
         r = pv.OpenFOAMReader(registrationName=name, FileName=str(self.foam))
         trynames(r, CaseType="Reconstructed Case", Decomposepolyhedra=0, SkipZeroTime=1)
         r.MeshRegions = list(names)
@@ -285,6 +306,7 @@ def cp_filter(src, prs: str, u_inf: float):
 
 
 def speed_filter(src, vec: str):
+    """Calculator that adds 'Speed', the magnitude of the vector array vec, as point data."""
     c = pv.Calculator(Input=to_points(src))
     c.Function = f"mag({vec})"
     c.ResultArrayName = "Speed"
@@ -294,6 +316,8 @@ def speed_filter(src, vec: str):
 def make_tracers(mesh, vec, bounds, density, max_length, upstream=0.15, levels=0):
     """Seed lines upstream of the wing at several heights; returns tube filters carrying 'Speed'."""
     tubes = []
+    # # Seed lines sit `upstream` metres in front of the body, across the half-span (just inside the tip to just off Y =
+    # 0).
     x0 = bounds[0] - upstream
     y_lo, y_hi = bounds[2] * 0.97, -0.003
     for z in seed_levels(bounds[5], levels if levels >= 2 else max(3, density // 6)):
@@ -344,11 +368,20 @@ def colour_key(view, lut, rep, title, labels, show=True):
 # Scenes
 # --------------------------------------------------------------------------- #
 class Scenes:
+    """The pictures. hero, side, wake, vortex, under, ground and orbit each build one scene in a view of their own
+    and write their image (or video) into the output folder.
+    """
     def __init__(self, case: Case, a):
+        """Load the internal mesh and the body, and work out the body bounds, the camera focal point and the full span.
+
+        Raises RuntimeError if the internal mesh or a body patch cannot be found in the case.
+        """
         self.case, self.a = case, a
         self.size = (a.width, a.width * 9 // 16)
         self.out = Path(a.out)
         self.out.mkdir(parents=True, exist_ok=True)
+        # # A half model has its symmetry plane at Y = 0 and only the Y <= 0 side meshed; mirror() completes it for
+        # display.
         self.half = not a.full_model
         rg = case.regions
         if not rg["mesh"] or not rg["body"]:
@@ -365,6 +398,7 @@ class Scenes:
 
     # -- shared pieces ------------------------------------------------------- #
     def wing(self, view, color=GRAPHITE, by_cp=False):
+        """Show the body (mirrored for a half model), plain graphite or coloured by Cp; returns the display."""
         src = cp_filter(self.body, self.case.prs, self.a.speed) if by_cp else self.body
         d = pv.Show(mirror(src, self.half), view)
         d.Representation = "Surface"
@@ -379,6 +413,7 @@ class Scenes:
         return d
 
     def tubes(self):
+        """The streamline tubes, traced on first use and reused by later scenes."""
         if self._tubes is None:
             log("  tracing streamlines ...")
             sp = speed_filter(self.mesh, self.case.vec)
@@ -386,6 +421,11 @@ class Scenes:
         return self._tubes
 
     def streamlines(self, view, lo=15.0, hi=70.0, mirrored=True):
+        """Show the streamline tubes coloured by speed (lo to hi m/s) with a colour key; returns the colour table.
+
+        mirrored=False draws the lines of a half model on its own side only, leaving the other side clear for the
+        camera.
+        """
         lut = color_map("Speed", "Turbo", lo, hi)
         last = None
         for t in self.tubes():
@@ -399,6 +439,9 @@ class Scenes:
         return lut
 
     def view(self):
+        """A new view at the case's time step with the caption; kept in self._view so main() can delete it after the
+        scene.
+        """
         v = make_view(self.size)
         trynames(v, ViewTime=self.case.time)
         caption(v, self.a.caption, max(10, self.size[0] // 70))
@@ -407,6 +450,7 @@ class Scenes:
 
     # -- the pictures -------------------------------------------------------- #
     def hero(self):
+        """Three-quarter view of the wing with streamlines (01_hero.png)."""
         v = self.view()
         self.wing(v)
         # Streamlines only on the far half (Y < 0) and the camera on the near side (Y > 0):
@@ -416,6 +460,7 @@ class Scenes:
         save(v, self.out / "01_hero.png", self.size)
 
     def side(self):
+        """Side-on view of a speed slice half-way along the half-span, orthographic (02_side_slice.png)."""
         v = self.view()
         y = self.bounds[2] * 0.5                      # half-way along the half-span
         sl = pv.Slice(Input=speed_filter(self.mesh, self.case.vec))
@@ -444,6 +489,8 @@ class Scenes:
         save(v, self.out / "02_side_slice.png", self.size)
 
     def wake(self):
+        """Three speed cross-sections 0.20, 0.55 and 1.00 m behind the wing, showing the vortices (03_wake_slices.png).
+        """
         v = self.view()
         self.wing(v)
         sp = speed_filter(self.mesh, self.case.vec)
@@ -479,10 +526,17 @@ class Scenes:
             self.vortex_plain()
 
     def vortex_fine(self):
+        """Vortex cores as Q-criterion surfaces, from the flow resampled onto a regular grid (04_vortex_cores.png).
+
+        Two nested levels are drawn, --q-level (faint) and five times that (solid), coloured by Cp so that stronger
+        vortices are brighter. The resampling is the slow step; --vortex-res sets the grid spacing.
+        """
         v = self.view()
         self.wing(v)
         b = self.bounds
         res = self.a.vortex_res
+        # # Resampling box: from just ahead of the wing to 1.6 m behind it, out past the tip to the symmetry plane,
+        # # and from the road to 0.45 m above the wing.
         lo = [b[0] - 0.10, b[2] - 0.15, 0.0]
         hi = [b[1] + 1.60, 0.0, b[5] + 0.45]
         dims = [int((hi[i] - lo[i]) / res) + 1 for i in range(3)]
@@ -532,6 +586,8 @@ class Scenes:
         shear and not a vortex. Returns (array name, filter). Falls back to plain Q if it cannot."""
         if "vtkValidPointMask" not in g.PointData.keys() or self.a.wall_clear <= 0:
             return "Q", g
+        # # Number of grid cells that cover the clearance distance; each pass below shrinks the valid region by one
+        # cell.
         n = max(1, int(math.ceil(self.a.wall_clear / res)))
         script = f"""
 import numpy as np
@@ -564,6 +620,9 @@ wo.PointData.append(np.where(m.reshape(-1), q, 0.0), 'Qclear')
             return "Q", g
 
     def vortex_plain(self):
+        """Fallback vortex picture: Q on the original mesh, one surface coloured by speed. Writes the same file as
+        vortex_fine.
+        """
         v = self.view()
         self.wing(v)
         try:
@@ -588,12 +647,17 @@ wo.PointData.append(np.where(m.reshape(-1), q, 0.0), 'Qclear')
         save(v, self.out / "04_vortex_cores.png", self.size)
 
     def under(self):
+        """Underside of the wing coloured by Cp, showing where the suction is (05_underside_pressure.png)."""
         v = self.view()
         self.wing(v, by_cp=True)
         set_camera(v, self.focal, 1.9 * self.span / 1.8, az=-30, el=-38)
         save(v, self.out / "05_underside_pressure.png", self.size)
 
     def ground(self):
+        """The road seen from below, coloured by Cp: the wing's footprint (06_road_footprint.png).
+
+        Raises RuntimeError if the case has no ground patch.
+        """
         name = self.case.regions["ground"]
         if not name:
             raise RuntimeError(f"no ground patch found in {self.case.available}")
@@ -611,6 +675,11 @@ wo.PointData.append(np.where(m.reshape(-1), q, 0.0), 'Qclear')
         save(v, self.out / "06_road_footprint.png", self.size)
 
     def orbit(self):
+        """One full turn of the camera around the hero scene: frames, then orbit.mp4 (H.264, CRF 18) with ffmpeg.
+
+        The frames are deleted once the video exists, unless --keep-frames is given. If ffmpeg is missing the frames
+        stay and the command to run is printed.
+        """
         ext = self.a.frame_format
         frames = self.out / "orbit_frames"
         if frames.exists():
@@ -623,6 +692,8 @@ wo.PointData.append(np.where(m.reshape(-1), q, 0.0), 'Qclear')
         log(f"  orbit: {n} frames at {self.a.fps} fps = {n / self.a.fps:.1f} s for one full turn ({360.0 / (n / self.a.fps):.1f} degrees per second)")
         dist = self.a.orbit_distance * self.span / 1.8
         for i in range(n):
+            # # A full turn over n frames; the camera also rises and falls by 5 degrees once per turn so the view is not
+            # flat.
             set_camera(v, self.focal, dist, az=-35 + 360.0 * i / n, el=16 + 5 * math.sin(2 * math.pi * i / n))
             pv.Render(v)
             path = str(frames / f"frame_{i:05d}.{ext}")
@@ -653,6 +724,9 @@ wo.PointData.append(np.where(m.reshape(-1), q, 0.0), 'Qclear')
 
 # --------------------------------------------------------------------------- #
 def parse(argv):
+    """Read the command-line options. --quick overrides size, orbit frames, streamline density and vortex grid for a
+    fast preview.
+    """
     ap = argparse.ArgumentParser(description="Website pictures and an orbit video from a finished case.")
     ap.add_argument("--case", type=Path, required=True, help="the <name>.foam file in the job's case folder")
     ap.add_argument("--out", type=Path, default=Path("flow_images"), help="output folder")
@@ -691,6 +765,9 @@ def parse(argv):
 
 
 def main(argv=None) -> int:
+    """Load the case, run each requested scene on its own, and report. Returns 0, 1 if a scene failed, 2 if not run
+    under pvbatch or the case is missing.
+    """
     if pv is None:
         print("This script must be run with ParaView's pvbatch (it needs the paraview module).", file=sys.stderr)
         return 2

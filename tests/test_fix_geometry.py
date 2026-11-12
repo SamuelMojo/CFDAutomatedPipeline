@@ -23,6 +23,10 @@ def write_assembly(path: Path):
 
 
 def test_assembly_becomes_one_clean_solid(tmp_path):
+    """Overlapping and touching parts are fused into one valid solid of the right volume, in metres.
+
+    The overlap is counted once, the tiny bolt is dropped, and the written STL is closed, manifold and a single body.
+    """
     step = tmp_path / "asm.step"
     write_assembly(step)
     out = tmp_path / "asm_fixed.stl"

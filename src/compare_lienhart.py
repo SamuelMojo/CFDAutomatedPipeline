@@ -59,11 +59,14 @@ def load_dat(path: Path, ncols: int) -> np.ndarray:
 
 
 def load_velocity(path: Path) -> dict:
+    """Read one LDA velocity plane file; coordinates are converted from mm to m. Returns {'name', 'xyz', 'U'}."""
     d = load_dat(path, 6)
     return {"name": Path(path).stem.replace("Ahmed_25_", ""), "xyz": d[:, :3] / 1000.0, "U": d[:, 3:6]}
 
 
 def load_cp(path: Path) -> dict:
+    """Read the rear-body surface pressure file; coordinates are converted from mm to m. Returns {'name', 'xyz', 'Cp'}.
+    """
     d = load_dat(path, 4)
     return {"name": "Cp", "xyz": d[:, :3] / 1000.0, "Cp": d[:, 3]}
 
@@ -100,12 +103,14 @@ def surface_offset(xyz: np.ndarray, slant_deg: float = 25.0, d: float = 0.001) -
 # OpenFOAM probes
 # --------------------------------------------------------------------------- #
 def probes_dict(points: np.ndarray, fields=("U", "p")) -> str:
+    """Text of an OpenFOAM 'probes' function object that samples the given fields at every point (N x 3, metres)."""
     pts = "\n".join(f"        ({p[0]:.6f} {p[1]:.6f} {p[2]:.6f})" for p in points)
     return ("type            probes;\nlibs            (\"libsampling.so\");\n"
             f"fields          ({' '.join(fields)});\nprobeLocations\n(\n{pts}\n);\n")
 
 
 def latest_time(case: Path) -> Path | None:
+    """Newest positive-numbered time directory of the case, or None if the case has not been run."""
     times = []
     for d in case.iterdir():
         try:
@@ -149,6 +154,11 @@ def parse_probes(path: Path, vector: bool) -> tuple[np.ndarray, np.ndarray]:
 # Comparison
 # --------------------------------------------------------------------------- #
 def compare_velocity(meas: dict, sim_u: np.ndarray) -> dict:
+    """Compare simulated and measured streamwise velocity on one plane.
+
+    Errors are (simulated - measured) / U_BULK, over the points that fall inside the mesh (not NaN).
+    Returns the point counts and the RMS and mean error, or None for the errors if no point was found.
+    """
     um, us = meas["U"][:, 0], sim_u[:, 0]
     ok = ~np.isnan(us)
     err = (us[ok] - um[ok]) / U_BULK
@@ -184,6 +194,11 @@ def slant_flow_state(meas: dict, sim_u: np.ndarray, slant_deg: float = 25.0) -> 
 
 
 def compare_cp(meas: dict, sim_p: np.ndarray, kinds: list[str]) -> dict:
+    """Compare simulated and measured surface pressure coefficient, overall and per face of the body.
+
+    Probe pressure is kinematic (p/rho), so Cp = p / (0.5 * U_BULK^2). kinds[i] names the face point i lies on.
+    Each face with at least one found point gets its RMS error and the measured and simulated means.
+    """
     cps = sim_p / (0.5 * U_BULK ** 2)                      # kinematic pressure, freestream reference 0
     ok = ~np.isnan(cps)
     res = {"points": int(len(cps)), "found": int(ok.sum())}
@@ -198,6 +213,12 @@ def compare_cp(meas: dict, sim_p: np.ndarray, kinds: list[str]) -> dict:
 
 
 def plots(outdir: Path, vel: list[dict], sims: list[np.ndarray], cp: dict, cps: np.ndarray, kinds) -> list[str]:
+    """Save the comparison figures into outdir and return their file names.
+
+    One profile figure per symmetry-plane velocity file (name starting y=0): measured and simulated u at each station,
+    drawn as profiles offset along x with the body outline. One Cp figure for the symmetry plane with a panel each for
+    roof and slant, rear face and underside. Returns an empty list if matplotlib is not installed.
+    """
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -260,11 +281,17 @@ def plots(outdir: Path, vel: list[dict], sims: list[np.ndarray], cp: dict, cps: 
 
 # --------------------------------------------------------------------------- #
 def find_case(path: Path) -> Path:
+    """The OpenFOAM case folder for a job folder (its 'case' subfolder), or the path itself if it already is a case."""
     p = Path(path)
     return p / "case" if (p / "case" / "system").is_dir() else p
 
 
 def prepare(case: Path, data: Path, slant: float) -> dict:
+    """Read the measurements and write the probes function into the case; returns what analyse() needs.
+
+    All velocity-plane points and the offset Cp points go into one probes list. 'sizes' records how many belong to
+    each block so the output can be split again.
+    """
     vel = [load_velocity(data / f) for f in VELOCITY_FILES if (data / f).is_file()]
     if not vel:
         raise FileNotFoundError(f"No Lienhart velocity files in {data}")
@@ -278,6 +305,11 @@ def prepare(case: Path, data: Path, slant: float) -> dict:
 
 
 def analyse(case: Path, outdir: Path, prep: dict, slant: float) -> dict:
+    """Read the probes output, compare it with the measurements and write compare_lienhart.json/.md and figures.
+
+    Uses the last time directory of postProcessing/lienhartProbes. Raises FileNotFoundError if foamPostProcess has
+    not run.
+    """
     base = case / "postProcessing" / "lienhartProbes"
     times = sorted((d for d in base.iterdir() if d.is_dir()), key=lambda d: float(d.name)) if base.is_dir() else []
     if not times:
@@ -303,6 +335,7 @@ def analyse(case: Path, outdir: Path, prep: dict, slant: float) -> dict:
 
 
 def report_md(r: dict) -> str:
+    """Markdown report for a result dictionary from analyse(): velocity planes, slant-flow state and Cp by face."""
     f = r.get("fields", ["U", "p"])
     note = ("Simulated values: time-averaged fields (UMean, pMean)." if f[0] == "UMean" else
             "Simulated values: LAST ITERATION SNAPSHOT (no averaged fields found); unreliable if the run oscillates.")
@@ -332,6 +365,9 @@ def report_md(r: dict) -> str:
 
 
 def main(argv=None) -> int:
+    """Command-line entry point: write the probes, run foamPostProcess, compare, and print the report. Returns 0, or 2
+    on error.
+    """
     ap = argparse.ArgumentParser(description="Compare an Ahmed 25 deg job with Lienhart & Becker wind-tunnel data.")
     ap.add_argument("job", type=Path, help="job folder (or its case folder)")
     ap.add_argument("--data", type=Path, default=Path(__file__).resolve().parents[1] / "test_data" / "lienhart")

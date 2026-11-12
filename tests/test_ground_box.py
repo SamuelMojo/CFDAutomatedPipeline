@@ -12,6 +12,11 @@ import fix_geometry as fg  # noqa: E402
 
 
 def tilted_box(rake_deg=0.5, floor_at_origin=-0.02, mm=False, path=None):
+    """Corner points of a tilted box, optionally written as a STEP file.
+
+    The box's floor is rake_deg below horizontal and passes floor_at_origin below the origin; mm=True writes the
+    coordinates in millimetres. Returns the corners as an array.
+    """
     a = np.radians(rake_deg)
     flow, up = np.array([np.cos(a), 0, -np.sin(a)]), np.array([np.sin(a), 0, np.cos(a)])
     side = np.array([0, 1.0, 0])
@@ -31,6 +36,10 @@ def tilted_box(rake_deg=0.5, floor_at_origin=-0.02, mm=False, path=None):
 
 @pytest.mark.parametrize("mm", [False, True])
 def test_box_floor_becomes_ground_and_long_axis_the_flow(tmp_path, mm):
+    """The box gives the rotation and floor point: its long axis is the flow and its floor is Z = 0.
+
+    Checked for coordinates in metres and in millimetres.
+    """
     step = tmp_path / "box.step"
     tilted_box(path=step, mm=mm)
     R, p0 = fg.box_frame(fg.read_step_vertices(step))
@@ -47,5 +56,6 @@ def test_box_floor_becomes_ground_and_long_axis_the_flow(tmp_path, mm):
 
 
 def test_not_a_box_is_refused():
+    """Eight random points are not a box, so box_frame() raises ValueError."""
     with pytest.raises(ValueError):
         fg.box_frame(np.random.default_rng(1).random((8, 3)))

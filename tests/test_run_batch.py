@@ -19,10 +19,14 @@ pytestmark = trj.pytestmark
 class Switching(trj.FakeFoam):
     """Fake OpenFOAM whose second job leaks (FLUID_VOLUME fails)."""
     def __init__(self):
+        """Count the jobs started, so the second job can be given a leak."""
         super().__init__()
         self.jobs = 0
 
     def __call__(self, cmd, case, log, append=False):
+        """Run the command as the fake does, but at the start of each job (surfaceFeatures) reset the counters; job 2
+        leaks.
+        """
         if cmd == ["surfaceFeatures"]:
             self.jobs += 1
             self.it = 0
@@ -31,6 +35,7 @@ class Switching(trj.FakeFoam):
 
 
 def two_jobs(tmp_path):
+    """Two job files differing only in name; the second is the one that leaks."""
     a = trj.job_file(tmp_path, name="good")
     b = tmp_path / "job2.json"
     spec = json.loads(a.read_text())
@@ -40,6 +45,8 @@ def two_jobs(tmp_path):
 
 
 def test_batch_continues_after_a_stopped_job(tmp_path):
+    """A job stopped by a gate is reported with its reason and the next job still runs; both appear in the batch table.
+    """
     rows = rb.run_batch(two_jobs(tmp_path), tmp_path / "jobs", trj.TUT, runner=Switching())
     assert [r["job"] for r in rows] == ["good", "leaky"]
     assert rows[0]["outcome"] == "finished" and rows[0]["Cd"] is not None
@@ -49,6 +56,7 @@ def test_batch_continues_after_a_stopped_job(tmp_path):
 
 
 def test_batch_validates_all_files_first(tmp_path):
+    """One invalid job file stops the batch before any command runs."""
     files = two_jobs(tmp_path)
     bad = json.loads(files[1].read_text())
     bad["preset"] = "nope"
@@ -60,6 +68,7 @@ def test_batch_validates_all_files_first(tmp_path):
 
 
 def test_duplicate_names_rejected(tmp_path):
+    """Two jobs with the same name are refused."""
     a = trj.job_file(tmp_path)
     with pytest.raises(rj.JobError, match="unique"):
         rb.run_batch([a, a], tmp_path / "jobs", trj.TUT, runner=trj.FakeFoam())

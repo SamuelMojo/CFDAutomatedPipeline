@@ -15,11 +15,14 @@ HDR = "#####\n# Origin of coordinate system: x=0: end of the car\n%Column1Name =
 
 
 def write_vel(path, pts):
+    """Write an ERCOFTAC-style velocity file (mm coordinates, 18 columns) from (x, y, z, u) rows."""
     rows = [f"{x:.3f}\t{y:.3f}\t{z:.3f}\t{u:.3f}\t0.0\t0.0" + "\t0.0" * 12 for x, y, z, u in pts]
     path.write_text(HDR + "\n".join(rows) + "\n")
 
 
 def make_data(d):
+    """Small synthetic Lienhart data folder: a symmetry-plane file, an x = 200 plane and a Cp file with one short row.
+    """
     d.mkdir()
     dx, dz = ma.slant_geometry(25)
     roof = (ma.CLEARANCE + ma.H) * 1000
@@ -36,6 +39,7 @@ def make_data(d):
 
 
 def test_loaders_convert_mm_and_skip_short_rows(tmp_path):
+    """Loaders convert mm to m and drop incomplete rows."""
     d = make_data(tmp_path / "data")
     v = cl.load_velocity(d / "Ahmed_25_y=0_focus.dat")
     assert v["xyz"][1].tolist() == pytest.approx([-0.1, 0.0, 0.38])
@@ -44,6 +48,7 @@ def test_loaders_convert_mm_and_skip_short_rows(tmp_path):
 
 
 def test_surface_offsets_point_into_the_air(tmp_path):
+    """Each surface Cp point moves 1 mm along its own outward normal and is tagged with its face."""
     cp = cl.load_cp(make_data(tmp_path / "data") / "Ahmed_25_Cp.dat")
     moved, kinds = cl.surface_offset(cp["xyz"], 25)
     assert kinds == ["roof", "slant", "rear", "side", "underside"]
@@ -53,6 +58,7 @@ def test_surface_offsets_point_into_the_air(tmp_path):
 
 
 def fake_probes(case, pts, U, p, time="1500"):
+    """Write a postProcessing/lienhartProbes output with the given locations and values."""
     out = case / "postProcessing" / "lienhartProbes" / time
     out.mkdir(parents=True)
     head = "".join(f"# Probe {i} ({x} {y} {z})\n" for i, (x, y, z) in enumerate(pts)) + "#   Probe 0 1\n#  Time\n"
@@ -61,6 +67,9 @@ def fake_probes(case, pts, U, p, time="1500"):
 
 
 def test_end_to_end_with_fake_probes(tmp_path, monkeypatch):
+    """prepare() then analyse() on fake probes: probe file contents, velocity and Cp errors, attached-versus-reversed
+    slant flow and a missing probe.
+    """
     data = make_data(tmp_path / "data")
     case = tmp_path / "job" / "case"
     (case / "system").mkdir(parents=True)
@@ -91,6 +100,7 @@ def test_end_to_end_with_fake_probes(tmp_path, monkeypatch):
 
 
 def test_probe_count_mismatch_is_an_error(tmp_path):
+    """A probes file with fewer values than locations raises a clear error."""
     f = tmp_path / "U"
     f.write_text("# Probe 0 (0 0 0)\n# Probe 1 (1 0 0)\n1500 (1 2 3)\n")
     with pytest.raises(ValueError, match="2 probe locations but 1 values"):
@@ -98,6 +108,7 @@ def test_probe_count_mismatch_is_an_error(tmp_path):
 
 
 def test_mean_fields_preferred(tmp_path):
+    """UMean and pMean are sampled when the latest time has them, otherwise U and p."""
     case = tmp_path / "case"
     (case / "system").mkdir(parents=True)
     (case / "0").mkdir()

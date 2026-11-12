@@ -29,11 +29,15 @@ class FakeFoam:
     """Stands in for OpenFOAM. `cd(i)` gives drag at iteration i; `leak` breaks the volume gate."""
 
     def __init__(self, cd=lambda i: 0.25 + 0.05 * np.exp(-i / 100), leak=False, mesh_ok=True):
+        """cd(i) gives the drag coefficient at iteration i; leak puts air inside the body; mesh_ok False makes
+        snappyHexMesh fail.
+        """
         self.cd, self.leak, self.mesh_ok = cd, leak, mesh_ok
         self.calls = []
         self.it = 0
 
     def __call__(self, cmd, case, log, append=False):
+        """Pretend to run one OpenFOAM command: record it and write the log the real tool would write."""
         self.calls.append(cmd)
         name = next(c for c in cmd if c not in ("mpirun", "-np") and not c.isdigit())
         text = "End\n"
@@ -56,6 +60,9 @@ class FakeFoam:
 
 
 def job_file(tmp_path, **extra):
+    """Write a small job file (and its box STL) in tmp_path and return the job file's path; extra keys override the
+    defaults.
+    """
     stl = tmp_path / "box.stl"
     ig.write_stl_binary(stl, fx.cube(1.0) * [1.0, 0.4, 0.3] + [-1.0, -0.2, 0.05])
     spec = {"name": "boxtest", "geometry": "box.stl", "units": "m", "preset": "quick",
@@ -70,6 +77,9 @@ def job_file(tmp_path, **extra):
 
 
 def test_converges_and_stops_early(tmp_path):
+    """A settling run stops on the convergence gate before the iteration limit, with every stage timed and the summary
+    written.
+    """
     fake = FakeFoam()
     spec = rj.load_job(job_file(tmp_path))
     job = rj.Job(spec, tmp_path / "jobs", TUT, runner=fake, stamp="t")
@@ -86,6 +96,7 @@ def test_converges_and_stops_early(tmp_path):
 
 
 def test_drifting_run_hits_max(tmp_path):
+    """A run whose forces never settle runs to max_iterations and does not pass the CONVERGED gate."""
     fake = FakeFoam(cd=lambda i: 0.30 - 0.0001 * i)               # never settles
     spec = rj.load_job(job_file(tmp_path))
     job = rj.Job(spec, tmp_path / "jobs", TUT, runner=fake, stamp="t")
@@ -96,6 +107,7 @@ def test_drifting_run_hits_max(tmp_path):
 
 
 def test_leak_stops_before_solving(tmp_path):
+    """A leak stops the job at the mesh gates, and the solver is never started."""
     fake = FakeFoam(leak=True)
     spec = rj.load_job(job_file(tmp_path))
     job = rj.Job(spec, tmp_path / "jobs", TUT, runner=fake, stamp="t")
@@ -106,6 +118,7 @@ def test_leak_stops_before_solving(tmp_path):
 
 
 def test_bad_geometry_stops_at_inspection(tmp_path):
+    """Open geometry stops the job at inspection before any case is created."""
     spec = rj.load_job(job_file(tmp_path))
     ig.write_stl_binary(spec["geometry"], fx.open_copy(fx.cube(1.0) + [0, 0, 0.1]))
     job = rj.Job(spec, tmp_path / "jobs", TUT, runner=FakeFoam(), stamp="t")
@@ -115,6 +128,7 @@ def test_bad_geometry_stops_at_inspection(tmp_path):
 
 
 def test_job_file_validation(tmp_path):
+    """Unknown presets and case options are rejected, and preset defaults fill in the rest."""
     with pytest.raises(rj.JobError, match="preset"):
         rj.load_job(job_file(tmp_path, preset="huge"))
     with pytest.raises(rj.JobError, match="Unknown case option"):
@@ -124,6 +138,7 @@ def test_job_file_validation(tmp_path):
 
 
 def test_field_averaging_block_after_settling(tmp_path):
+    """After the run settles, one extra block averages the fields, and the averaging is recorded in status.json."""
     fake = FakeFoam()
     spec = rj.load_job(job_file(tmp_path, solve={"min_iterations": 200, "max_iterations": 1000,
                                                  "block": 200, "average_iterations": 100}))
@@ -137,8 +152,12 @@ def test_field_averaging_block_after_settling(tmp_path):
 
 
 def test_failed_averaging_keeps_the_solution(tmp_path):
+    """If the averaging block fails, its error is recorded, its settings are removed, and the result is still delivered.
+    """
     class FailAvg(FakeFoam):
+        """Fake that raises a JobError when the solver runs with the averaging function enabled."""
         def __call__(self, cmd, case, log, append=False):
+            """Raise for foamRun when fieldAverageWindow is in the functions file, otherwise behave normally."""
             if "foamRun" in cmd and "fieldAverageWindow" in (case / "system/functions").read_text():
                 raise rj.JobError("fieldAverage syntax error")
             return super().__call__(cmd, case, log, append)
@@ -151,12 +170,15 @@ def test_failed_averaging_keeps_the_solution(tmp_path):
 
 
 def test_z_shift_moves_body_and_refuses_the_ground(tmp_path):
+    """z_shift_mm moves the body up or down, and a shift that takes it through the ground is refused."""
     spec = rj.load_job(job_file(tmp_path, z_shift_mm=30))
     job = rj.Job(spec, tmp_path / "jobs", TUT, runner=FakeFoam(), stamp="t")
+    job.dir.mkdir(parents=True)                          # run() normally makes the job folder; _inspect() does not
     job._inspect()
     z = ig.read_stl(job.stl)[..., 2]
     assert abs(z.min() - 0.08) < 1e-5                    # box was 0.05 m above the ground
     spec = rj.load_job(job_file(tmp_path, z_shift_mm=-60))
     job = rj.Job(spec, tmp_path / "jobs2", TUT, runner=FakeFoam(), stamp="t")
+    job.dir.mkdir(parents=True)
     with pytest.raises(rj.JobError):
         job._inspect()

@@ -76,6 +76,11 @@ class GateStop(Exception):
 # Job file
 # --------------------------------------------------------------------------- #
 def load_job(path: Path) -> dict:
+    """Read and validate a job file and return the job spec.
+
+    Defaults from the preset are filled in, paths are resolved relative to the job file, and the original
+    file content is kept under 'raw'. Raises JobError for a missing key, a bad name or an unknown preset.
+    """
     try:
         job = json.loads(Path(path).read_text())
     except (OSError, json.JSONDecodeError) as exc:
@@ -100,6 +105,7 @@ def load_job(path: Path) -> dict:
         raise JobError("solve: need block > 0 and min_iterations <= max_iterations.")
 
     def resolve(p):
+        """Expand variables and ~ in a path; relative paths are taken relative to the job file's folder."""
         q = Path(os.path.expandvars(str(p))).expanduser()
         return q if q.is_absolute() else (base / q)
 
@@ -162,11 +168,13 @@ def add_field_average(case: Path) -> None:
 
 
 def remove_field_average(case: Path) -> None:
+    """Remove the field-averaging include from the case's system/functions."""
     f = case / "system" / "functions"
     f.write_text(f.read_text().replace("\n#includeFunc fieldAverageWindow", ""))
 
 
 def gate_levels(result: dict) -> dict:
+    """Map each gate code in a check result to its level (PASS, WARN or FAIL)."""
     return {g["code"]: g["level"] for g in result["gates"]}
 
 
@@ -174,7 +182,14 @@ def gate_levels(result: dict) -> dict:
 # The job
 # --------------------------------------------------------------------------- #
 class Job:
+    """One job from start to finish, in its own folder.
+
+    Runs the stages in order (inspect, case, mesh, mesh gates, solve, finish), records the state and the time of
+    each stage in status.json, and appends every message to run_job.log. The runner executes shell commands;
+    tests pass a fake one so the chain can run without OpenFOAM.
+    """
     def __init__(self, spec: dict, jobs_dir: Path, tutorial: Path, runner=run_command, stamp: str | None = None):
+        """Prepare a job; nothing is created on disk until run(). The folder is <name>_<timestamp> in jobs_dir."""
         self.spec = spec
         self.tutorial = Path(tutorial)
         self.runner = runner
@@ -186,13 +201,17 @@ class Job:
 
     # -- bookkeeping ---------------------------------------------------------
     def save_status(self) -> None:
+        """Write status.json so progress can be read while the job is still running."""
         (self.dir / "status.json").write_text(json.dumps(self.status, indent=2, default=str))
 
     def stage(self, name: str):
+        """Context manager for one stage: marks it running, then done or failed, and records its duration in seconds."""
         job = self
 
         class _Stage:
+            """The object returned by Job.stage; times the block and updates the status on entry and exit."""
             def __enter__(self):
+                """Mark the stage as running and note its start time."""
                 self.t0 = time.time()
                 job.status["state"] = f"running: {name}"
                 job.status["stages"].append({"stage": name, "state": "running",
@@ -202,6 +221,7 @@ class Job:
                 return self
 
             def __exit__(self, exc_type, exc, tb):
+                """Record the stage's duration and whether it finished or failed; exceptions are not swallowed."""
                 entry = job.status["stages"][-1]
                 entry["seconds"] = round(time.time() - self.t0, 1)
                 entry["state"] = "done" if exc_type is None else "failed"
@@ -212,20 +232,28 @@ class Job:
         return _Stage()
 
     def log(self, msg: str) -> None:
+        """Print a time-stamped message and append it to run_job.log."""
         line = f"[{_dt.datetime.now().strftime('%H:%M:%S')}] {msg}"
         print(line, flush=True)
         with open(self.dir / "run_job.log", "a") as f:
             f.write(line + "\n")
 
     def foam(self, cmd: list[str], logname: str, append: bool = False) -> None:
+        """Run one command in the case folder, with its output going to the named log file in the case."""
         self.runner(cmd, self.case, self.case / logname, append)
 
     def mpi(self, *cmd: str) -> list[str]:
+        """Wrap a command in mpirun -parallel with the case's processor count; unchanged for a single processor."""
         n = self.nproc
         return ["mpirun", "-np", str(n), *cmd, "-parallel"] if n > 1 else list(cmd)
 
     # -- stages --------------------------------------------------------------
     def run(self) -> dict:
+        """Run all stages in order and return the final check result.
+
+        A failed mesh gate raises GateStop (nothing is solved); any other failure raises its own error. The outcome
+        and the finish time are saved to status.json in every case.
+        """
         s = self.spec
         self.dir.mkdir(parents=True, exist_ok=False)
         self.status["started_utc"] = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
@@ -255,6 +283,11 @@ class Job:
             self.save_status()
 
     def _inspect(self):
+        """Stage 'inspect': check the geometry and export the cleaned STL in metres.
+
+        Stops the job (GateStop) if the inspection fails. If z_shift_mm is set, moves the body up or down to change
+        the ride height while keeping the rake, and refuses a shift that would put it through the ground.
+        """
         s = self.spec
         with self.stage("inspect"):
             stl = self.dir / "geometry_m.stl"
@@ -281,6 +314,7 @@ class Job:
             self.stl = stl
 
     def _make_case(self):
+        """Stage 'case': build the OpenFOAM case from the preset and the job's case overrides."""
         s = self.spec
         with self.stage("case"):
             opts = dict(s["case"])
@@ -292,6 +326,8 @@ class Job:
                      f"speed {p['speed_m_s']} m/s, ground {p['ground']}")
 
     def _mesh(self):
+        """Stage 'mesh': surface features, background mesh, decomposition, snappyHexMesh, checkMesh and the cell count.
+        """
         with self.stage("mesh"):
             self.foam(["surfaceFeatures"], "log.surfaceFeatures")
             self.foam(["blockMesh"], "log.blockMesh")
@@ -306,6 +342,7 @@ class Job:
             self.log(f"mesh: {self.status['cells']:,} cells" if self.status["cells"] else "mesh: cell count not found")
 
     def _mesh_gates(self):
+        """Stage 'mesh gates': check the mesh before solving; a failed mesh gate stops the job (GateStop)."""
         with self.stage("mesh gates"):
             r = cc.check(self.case)
             lv = gate_levels(r)
@@ -317,6 +354,12 @@ class Job:
                 raise GateStop(f"mesh gate(s) failed: {', '.join(bad)}; not solving")
 
     def _solve(self):
+        """Stage 'solve': potentialFoam, then foamRun in blocks of iterations.
+
+        After each block the convergence gate is applied. The run stops when the mean has settled (and at least
+        min_iterations are done) or at max_iterations. If average_iterations is set, a final block then averages
+        the flow field; a failure of that block is logged and does not lose the solution.
+        """
         sv = self.spec["solve"]
         with self.stage("solve"):
             self.foam(self.mpi("potentialFoam"), "log.potentialFoam")
@@ -358,6 +401,8 @@ class Job:
                 self.save_status()
 
     def _finish(self) -> dict:
+        """Stage 'finish': reconstruct the parallel case, run the final checks, and write results.json and summary.md.
+        """
         s = self.spec
         with self.stage("finish"):
             if self.nproc > 1:
@@ -372,6 +417,7 @@ class Job:
 
 
 def summary_md(spec: dict, r: dict, status: dict) -> str:
+    """The job's summary.md: geometry, preset, cells, iterations, forces, comparison, gates and stage timings."""
     f = r.get("final") or {}
     cells = status.get("cells")
     lines = [f"# Job {spec['name']}", "",
@@ -399,6 +445,9 @@ def summary_md(spec: dict, r: dict, status: dict) -> str:
 
 
 def main(argv=None) -> int:
+    """Command-line entry point: run one job (or only validate it with --check-only). Returns 0, 1 or 2 (see module
+    doc).
+    """
     ap = argparse.ArgumentParser(description="Run one CFD job from a job file.")
     ap.add_argument("job", type=Path, help="job file (JSON)")
     ap.add_argument("--jobs-dir", type=Path,
