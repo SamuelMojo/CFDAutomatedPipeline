@@ -6,10 +6,12 @@
 Reads a job file (JSON) and runs the whole chain, stopping at the first failure:
 
   1. inspect     inspect_geometry.py: closed surface, units, exports a clean STL in metres
-  2. case        make_case.py: builds the OpenFOAM case from a preset plus overrides
+  2. case        make_case.py: builds the OpenFOAM case from a preset plus overrides. A preset whose
+                 cells are far too big for the part (check_case.py RESOLUTION) stops the job here,
+                 before any meshing (set "allow_coarse": true in the job file for a deliberate smoke test)
   3. mesh        surfaceFeatures, blockMesh, decomposePar, snappyHexMesh, checkMesh, patchSummary
-  4. mesh gates  check_case.py mesh gates; a bad mesh (leak, failed checkMesh) stops the job
-                 BEFORE hours of solving are spent
+  4. mesh gates  check_case.py mesh gates; a bad mesh (leak, failed checkMesh, too few cells for the
+                 part) stops the job BEFORE hours of solving are spent
   5. solve       potentialFoam, then foamRun in blocks of iterations. After each block the
                  convergence gate is applied; the run stops as soon as the running mean has
                  settled (and at least min_iterations are done), or at max_iterations
@@ -115,6 +117,7 @@ def load_job(path: Path) -> dict:
         "units": job["units"],
         "allow_open": bool(job.get("allow_open", False)),
         "allow_contact": bool(job.get("allow_contact", False)),
+        "allow_coarse": bool(job.get("allow_coarse", False)),
         "z_shift_mm": float(job.get("z_shift_mm", 0.0)),
         "preset": preset,
         "case": case_opts,
@@ -324,6 +327,18 @@ class Job:
             p = info["parameters"]
             self.log(f"case: base cells {p['base_cells']}, {self.nproc} processors, Aref {p['Aref_m2']:.4f} m^2, "
                      f"speed {p['speed_m_s']} m/s, ground {p['ground']}")
+            self._resolution_gate_before_meshing()
+
+    def _resolution_gate_before_meshing(self):
+        """Refuse a preset whose cells are far too big for the part, before any time is spent meshing.
+
+        Only the part's size and the preset's cell sizes are needed, so this runs as soon as the case exists. A FAIL
+        raises GateStop; a WARN is logged and the job goes on (the gate runs again after meshing with the cell count).
+        """
+        g, _ = cc.resolution_gate(json.loads((self.case / "job.json").read_text()), None, self.spec["allow_coarse"])
+        self.log(f"  [{g['level']}] RESOLUTION: {g['message']}")
+        if g["level"] == "FAIL":
+            raise GateStop(f"RESOLUTION gate failed before meshing: {g['message']}")
 
     def _mesh(self):
         """Stage 'mesh': surface features, background mesh, decomposition, snappyHexMesh, checkMesh and the cell count.
@@ -344,12 +359,13 @@ class Job:
     def _mesh_gates(self):
         """Stage 'mesh gates': check the mesh before solving; a failed mesh gate stops the job (GateStop)."""
         with self.stage("mesh gates"):
-            r = cc.check(self.case)
+            r = cc.check(self.case, allow_coarse=self.spec["allow_coarse"])
             lv = gate_levels(r)
-            for code in ("MESH_FINISHED", "MESH_QUALITY", "FLUID_VOLUME"):
+            codes = ("MESH_FINISHED", "MESH_QUALITY", "FLUID_VOLUME", "RESOLUTION")
+            for code in codes:
                 g = next(x for x in r["gates"] if x["code"] == code)
                 self.log(f"  [{g['level']}] {code}: {g['message']}")
-            bad = [c for c in ("MESH_FINISHED", "MESH_QUALITY", "FLUID_VOLUME") if lv.get(c) == "FAIL"]
+            bad = [c for c in codes if lv.get(c) == "FAIL"]
             if bad:
                 raise GateStop(f"mesh gate(s) failed: {', '.join(bad)}; not solving")
 
@@ -369,7 +385,7 @@ class Job:
                 set_control(self.case, target)
                 self.foam(self.mpi("foamRun"), "log.foamRun", append=not first)
                 first = False
-                r = cc.check(self.case, tol_pass=sv["tolerance"])
+                r = cc.check(self.case, tol_pass=sv["tolerance"], allow_coarse=self.spec["allow_coarse"])
                 conv = next((g for g in r["gates"] if g["code"] == "CONVERGED"), None)
                 done = r["final"]["iterations"] if r.get("final") else 0
                 self.log(f"solve: {done} iterations; {conv['level'] if conv else 'no forces'}"
@@ -408,7 +424,7 @@ class Job:
             if self.nproc > 1:
                 self.foam(["reconstructPar", "-latestTime"], "log.reconstructPar")
             (self.case / f"{s['name']}.foam").touch()
-            r = cc.check(self.case, s["reference"], tol_pass=s["solve"]["tolerance"])
+            r = cc.check(self.case, s["reference"], tol_pass=s["solve"]["tolerance"], allow_coarse=s["allow_coarse"])
             (self.case / "results.json").write_text(json.dumps(r, indent=2))
             (self.dir / "results.json").write_text(json.dumps(r, indent=2))
         (self.dir / "summary.md").write_text(summary_md(s, r, self.status))
